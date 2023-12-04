@@ -1,22 +1,24 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import TypeVar, Optional
+from my import AbstractMethodException
+from typing import TypeVar
 import time
 
 
 class State(ABC):
     @abstractmethod
     def __eq__(self, other: State) -> bool:
-        raise Exception("abstract method")
+        raise AbstractMethodException()
 
     @abstractmethod
     def apply(self) -> None:
-        raise Exception("abstract method")
+        raise AbstractMethodException()
 
+    @staticmethod
     @abstractmethod
-    def avg(self, a: TheState, b: TheState, weight_a: float) -> TheState:
-        raise Exception("abstract method")
+    def avg(a: TheState, b: TheState, weight_a: float) -> TheState:
+        raise AbstractMethodException()
 
     @staticmethod
     def _value(_a: int, _b: int, weight_a: float) -> int:
@@ -27,13 +29,11 @@ TheState = TypeVar('TheState', bound=State)
 
 
 class Transition:
-    def __init__(
-            self,
-            from_state: TheState,
-            from_time: datetime,
-            to_state: TheState,
-            to_time: datetime,
-    ) -> None:
+    def __init__(self,
+                 from_state: TheState,
+                 from_time: datetime,
+                 to_state: TheState,
+                 to_time: datetime) -> None:
         self.__from_state = from_state
         self.__from_time = from_time
         self.__to_state = to_state
@@ -47,12 +47,12 @@ class Transition:
         if interval_seconds < 0:
             self.__tick(0)
             return
-        last_update: Optional[datetime] = None
+        last_update: datetime | None = None
         while True:
             now = datetime.now()
             progress = (now - self.__from_time).total_seconds() / interval_seconds
             if progress < 0:
-                raise "progress < 0"
+                raise Exception("progress < 0")
             if progress >= 1:
                 self.__tick(1)
                 return

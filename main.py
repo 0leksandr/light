@@ -1,9 +1,9 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Callable, TypeVar
-import asyncio
+from typing import Callable
 import math
+import multiprocessing
 import re
 import subprocess
 import sys
@@ -14,6 +14,7 @@ import pywizlight
 import yeelight
 
 from my import AbstractMethodException, dump
+
 
 class Bulb(ABC):
     @staticmethod
@@ -66,24 +67,6 @@ class ColorBulb(Bulb):
         return f"{red}, {green}, {blue}"
 
 
-_Bulb = TypeVar("_Bulb", bound=Bulb)
-def discover(get_bulb: Callable[[str], _Bulb | None]) -> _Bulb:
-    nr_tries = 1
-    for i in range(nr_tries):
-        for ip0 in range(100, 105):  # TODO: parallel
-            if bulb := get_bulb(f"192.168.0.{ip0}"):
-                return bulb
-
-        # bulbs = parallel([(get_bulb, f"192.168.0.{ip0}") for ip0 in range(100, 105)])
-        # dump(); print(bulbs)
-        # bulbs = list(filter(lambda a: a, bulbs))
-        # if bulbs:
-        #     return bulbs[0]
-
-        # time.sleep(1)
-    raise Exception("can not discover bulb")
-
-
 class Yeelight(ColorBulb):
     def __init__(self, bulb: yeelight.Bulb) -> None:
         self.__bulb = bulb
@@ -92,18 +75,20 @@ class Yeelight(ColorBulb):
     def get() -> Yeelight:
         # yeelight.discover_bulbs()
 
-        def get(ip: str) -> Yeelight | None:
-            bulb = yeelight.Bulb(ip)
-            try:
-                # bulb.get_capabilities()
-                bulb.get_properties()
-                # if run_with_timeout(bulb.get_properties, 1):
-            except Exception as exception:
-                dump(exception)
-                return None
-            return Yeelight(bulb)
-
-        return discover(get)
+        exceptions = []
+        nr_tries = 10
+        for i in range(nr_tries):
+            for ip0 in range(100, 105):
+                try:
+                    bulb = yeelight.Bulb(f"192.168.0.{ip0}")
+                    # bulb.get_capabilities()
+                    bulb.get_properties()
+                    # if run_with_timeout(bulb.get_properties, 1):
+                    return Yeelight(bulb)
+                except Exception as exception:
+                    exceptions.append(exception)
+            # time.sleep(1)
+        raise exceptions[-1]
 
     def turn_on(self) -> None:
         self.__bulb.turn_on()
@@ -116,7 +101,6 @@ class Yeelight(ColorBulb):
         self.__bulb.set_color_temp(temperature)
 
     def toggle(self) -> None:
-        dump()
         self.__bulb.toggle()
 
     def general_info(self) -> None:
@@ -135,52 +119,81 @@ class Yeelight(ColorBulb):
         self.__bulb.set_brightness(brightness)
 
 
-def parallel(functions: list):
-    dump(len(functions))
+def parallel_all(functions: list) -> list:
+    results = []
 
-    async def coroutine(function):
-        if callable(function):
-            function()
-        else:
-            (function[0])(function[1:])
+    def run_function(func):
+        try:
+            results.append(func())
+        except Exception as e:
+            dump(e)
 
-    async def f():
-        return await asyncio.gather(*[coroutine(function) for function in functions])
-    return asyncio.run(f())
+    processes = [multiprocessing.Process(target=run_function, args=(func,)) for func in functions]
+
+    for process in processes:
+        process.start()
+
+    for process in processes:
+        process.join()
+
+    return results
+
+
+def parallel_first(functions: list[callable]):  # by ChatGPT
+    queue = multiprocessing.Manager().Queue()
+
+    def run_function(func):
+        try:
+            queue.put(func())
+        except Exception as e:
+            dump(e)
+
+    processes = [multiprocessing.Process(target=run_function, args=(func,)) for func in functions]
+
+    for process in processes:
+        process.start()
+
+    # Wait for the first non-empty result
+    result = None
+    while result is None and any(process.is_alive() for process in processes):
+        result = queue.get()
+
+    # Terminate all processes
+    for process in processes:
+        if process.is_alive():
+            process.terminate()
+
+    # Wait for all processes to finish
+    for process in processes:
+        process.join()
+
+    return result
 
 
 class Wiz(Bulb):
-    def __init__(self, bulb: pywizlight.bulb) -> None:
-        self.__bulb = bulb
+    __bulb = pywizlight.wizlight
+
+    def __init__(self, ip: str) -> None:
+        self.__ip = ip
 
     @staticmethod
     def get() -> Wiz:
-        # return Wiz(pywizlight.wizlight("192.168.0.103"))
-        # ...
-        #
-        # async def discover(ip) -> list[pywizlight.wizlight]:
-        #     return await pywizlight.discovery.discover_lights(broadcast_space=ip)
-        #
-        # def join(lists: list[list]) -> list:
-        #     return [value for _list in lists for value in _list]
-        #
-        # if bulbs := join(await asyncio.gather([discover(f"192.168.0.{ip0}") for ip0 in (range(100, 109))])):
-        #     return Wiz(bulbs[0])
-        # else:
-        #     raise Exception("Wiz bulb not found")
-
         def get(ip: str) -> Wiz | None:
-            bulb = pywizlight.wizlight(ip)
             try:
-                Wiz.__await_ip(ip, bulb.get_bulbtype)
-            # except pywizlight.exceptions.WizLightConnectionError:
-            #     return None
-            except Exception as exception:
-                dump(exception)
+                Wiz.__await_ip(ip, pywizlight.wizlight.get_bulbtype)
+            except Exception:
                 return None
-            return Wiz(bulb)
+            return Wiz(ip)
 
-        return discover(get)
+        nr_tries = 10
+        for i in range(nr_tries):
+            bulb = parallel_first([(lambda ip=ip0: get(f"192.168.0.{ip}"))
+                                   for ip0 in range(100, 105)])
+            if bulb:
+                return bulb
+
+            # time.sleep(1)
+        raise Exception("can not discover bulb")
 
     def turn_on(self) -> None:
         self.__await(self.__bulb.turn_on)
@@ -218,26 +231,14 @@ class Wiz(Bulb):
                 ip,
                 method.__name__,
                 *[str(arg) for arg in (args or [])]]
-        dump(args)
         res = subprocess.run(args, capture_output=True, text=True)
         if res.stderr:
             raise Exception(res.stderr)
         else:
             return res.stdout
 
-        # result = None
-        # def f0():
-        #     async def f1():
-        #         return await getattr(pywizlight.wizlight(ip), method.__name__)()
-        #     nonlocal result
-        #     result = asyncio.get_event_loop().run_until_complete(f1())
-        # thread = Thread(target=f0)
-        # thread.start()
-        # thread.join()
-        # return result
-
     def __await(self, method, args: list | None = None) -> str:
-        return Wiz.__await_ip(self.__bulb.ip, method, args)
+        return Wiz.__await_ip(self.__ip, method, args)
 
 
 class Mode(ABC):
@@ -379,7 +380,7 @@ class CommandGroup(Command):
     def run(self) -> None:
         # for command in self.__commands:
         #     command.run()
-        parallel([command.run for command in self.__commands])
+        parallel_all([command.run for command in self.__commands])
 
 
 class Commander(ABC):
@@ -467,11 +468,10 @@ def main() -> None:
     })
 
     command = commands.get(sys.argv[1:])
-    command = commands.get(["corridor", "night"])
-    command = commands.get(["toggle"])
-    command = commands.get(["table", "off"])
     try:
+        start = datetime.now()
         command.run()
+        dump(datetime.now() - start)
     except Exception as e:
         e_str = (str(e).replace("'", "'\\''"))
         print(e_str, file=sys.stderr)  # TODO: remove

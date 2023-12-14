@@ -256,6 +256,9 @@ class WhiteMode(Mode):
         # bulb.turn_on()
         bulb.white(self.__temperature, self.__brightness)
 
+    def to_state(self, bulb: Bulb) -> WhiteState:
+        return WhiteState(self.__temperature, self.__brightness, bulb)
+
 
 class StateMode(Mode):
     def __init__(self, state: bool) -> None:
@@ -308,7 +311,7 @@ class WhiteState(transition.State):
     def __init__(self, temperature: int, brightness: int, bulb: Bulb) -> None:
         self.__temperature = temperature
         self.__brightness = brightness
-        self.__bulb = bulb
+        self.__bulb = bulb  # MAYBE: remove
 
     def __eq__(self, other: WhiteState) -> bool:
         return (self.__temperature == other.__temperature
@@ -319,11 +322,9 @@ class WhiteState(transition.State):
 
     @staticmethod
     def avg(a: WhiteState, b: WhiteState, weight_a: float) -> WhiteState:
-        return WhiteState(
-            WhiteState._value(a.__temperature, b.__temperature, weight_a),
-            WhiteState._value(a.__brightness, b.__brightness, weight_a),
-            a.__bulb,
-        )
+        return WhiteState(WhiteState._value(a.__temperature, b.__temperature, weight_a),
+                          WhiteState._value(a.__brightness, b.__brightness, weight_a),
+                          a.__bulb)
 
 
 class TransitionMode(Mode):
@@ -338,16 +339,11 @@ class TransitionMode(Mode):
         self.__to_time = to_time
 
     def apply(self, bulb: Bulb) -> None:
-        transition.Transition()
-
-
-def parse_time(_time: str) -> datetime:
-    if re.match("^\\d+$", _time):
-        return datetime.fromtimestamp(int(_time))
-    match_hm = re.match("^(\\d{2}):(\\d{2})$", _time)
-    if match_hm:
-        return datetime.now().replace(hour=int(match_hm[1]), minute=int(match_hm[2]), second=0)
-    raise Exception(f"Cannot parse time from {_time}")
+        trans = transition.Transition(self.__from_mode.to_state(bulb),
+                                      self.__from_time,
+                                      self.__to_mode.to_state(bulb),
+                                      self.__to_time)
+        trans.run()
 
 
 class BulbProvider:
@@ -373,7 +369,7 @@ class BulbCommand(Command):
         self.__mode.apply(self.__bulb.get())
 
 
-class CommandGroup(Command):
+class MultiCommand(Command):
     def __init__(self, commands: list[Command]) -> None:
         self.__commands = commands
 
@@ -383,13 +379,59 @@ class CommandGroup(Command):
         parallel_all([command.run for command in self.__commands])
 
 
+class OptionsCommand(Command):
+    def __init__(self, options: list[str]) -> None:
+        self.__options = options
+
+    def run(self) -> None:
+        print("Options: " + " ".join(self.__options))
+
+
+class Argument(ABC):
+    @abstractmethod
+    def convert(self, value: str):
+        raise AbstractMethodException()
+
+    @abstractmethod
+    def options(self) -> list[str]:
+        raise AbstractMethodException()
+
+
+class ArgumentSelect(Argument):
+    def __init__(self, options: dict) -> None:
+        self.__options = options
+
+    def convert(self, value: str):
+        return self.__options[value] \
+            if value in self.__options \
+            else None
+
+    def options(self) -> list[str]:
+        return list(self.__options.keys())
+
+
+class TimeArgument(Argument):
+    def convert(self, value: str) -> datetime | None:
+        if re.match("^\\d+$", value):
+            return datetime.fromtimestamp(int(value))
+        elif match_hm := re.match("^(\\d{2}):(\\d{2})$", value):
+            return datetime.now().replace(hour=int(match_hm[1]), minute=int(match_hm[2]), second=0)
+        elif match_hms := re.match("^(\\d{2}):(\\d{2}):(\\d{2})$", value):
+            return datetime.now().replace(hour=int(match_hms[1]), minute=int(match_hms[2]), second=match_hms[3])
+        else:
+            return None
+
+    def options(self) -> list[str]:
+        return [datetime.now().strftime("%H:%M")]
+
+
 class Commander(ABC):
     @abstractmethod
     def get(self, keys: list[str]) -> Command:
         raise AbstractMethodException()
 
 
-class SingleCommand(Commander):
+class SingleCommander(Commander):
     def __init__(self, command: Command) -> None:
         self.__command = command
 
@@ -400,23 +442,37 @@ class SingleCommand(Commander):
             raise Exception("Unknown option(s): " + " ".join(keys))
 
 
-class CommandsList(Commander):
-    def __init__(self, commands: dict[str, Commander]) -> None:
-        self.__commands = commands
+class ListCommander(Commander):
+    def __init__(self, commanders: dict[str, Commander]) -> None:
+        self.__commanders = commanders
 
     def get(self, keys: list[str]) -> Command:
-        if len(keys) > 0 and keys[0] in self.__commands:
-            return self.__commands[keys[0]].get(keys[1:])
+        if len(keys) > 0 and keys[0] in self.__commanders:
+            return self.__commanders[keys[0]].get(keys[1:])
         else:
-            return CommandOptions(list(self.__commands.keys()))
+            return OptionsCommand(list(self.__commanders.keys()))
 
 
-class CommandOptions(Command):
-    def __init__(self, options: list[str]) -> None:
-        self.__options = options
+class TransitionCommander(Commander):
+    def __init__(self, bulbs: list[BulbProvider], modes: dict[str, WhiteMode]) -> None:
+        self.__bulbs = bulbs
+        self.__arguments = [ArgumentSelect(modes),
+                            TimeArgument(),
+                            ArgumentSelect(modes),
+                            TimeArgument()]
 
-    def run(self) -> None:
-        print("Options:", " ".join(self.__options))
+    def get(self, keys: list[str]) -> Command:
+        arguments = []
+        for i in range(len(keys)):
+            argument = self.__arguments[i].convert(keys[i])
+            if argument is None:
+                return OptionsCommand(self.__arguments[i].options())
+            else:
+                arguments.append(argument)
+        if len(arguments) < len(self.__arguments):
+            return OptionsCommand(self.__arguments[len(arguments)].options())
+        return MultiCommand([BulbCommand(bulb, TransitionMode(*arguments))
+                             for bulb in self.__bulbs])
 
 
 def main() -> None:
@@ -437,17 +493,8 @@ def main() -> None:
         "blue":  ColorMode(0, 254, 255, 1),
     }
 
-    transitions: dict[str, TransitionMode] = {
-        "transition": TransitionMode(white_modes[sys.argv[2]],
-                                     parse_time(sys.argv[3]),
-                                     white_modes[sys.argv[4]],
-                                     parse_time(sys.argv[5]))
-        if len(sys.argv) >= 6 else ErrorMode("Not enough arguments for transition"),
-    }
-
     common_modes: dict[str, Mode] = {
         **white_modes,
-        **transitions,
         "on":         StateMode(True),
         "off":        StateMode(False),
         "toggle":     ToggleMode(),
@@ -455,31 +502,35 @@ def main() -> None:
         "brightness": BrightnessInfoMode(),
     }
 
-    commands = CommandsList({
-        **{name: SingleCommand(CommandGroup([BulbCommand(bulb, mode) for bulb in [corridor, table]]))
+    def transition_commander(bulbs: list[BulbProvider]) -> dict[str, TransitionCommander]:
+        return {"transition": TransitionCommander(bulbs, white_modes)}
+
+    def bulb_commands(bulb: BulbProvider, modes: list[dict[str, Mode]]) -> ListCommander:
+        dic: dict[str, Commander] = {name: SingleCommander(BulbCommand(bulb, mode))
+                                     for modes_dic in modes
+                                     for name, mode in modes_dic.items()}
+        dic |= transition_commander([bulb])
+        return ListCommander(dic)
+
+    commands = ListCommander({
+        **{name: SingleCommander(MultiCommand([BulbCommand(bulb, mode) for bulb in [corridor, table]]))
            for name, mode in common_modes.items()},
-        "table": CommandsList({name: SingleCommand(BulbCommand(table, mode)) for name, mode in {
-            **color_modes,
-            **common_modes,
-            # "movie":      color_modes(sys.argv[2]) if len(sys.argv) >= 3 else ErrorMode("Select movie color"),
-        }.items()}),
-        "corridor": CommandsList({name: SingleCommand(BulbCommand(corridor, mode))
-                                  for name, mode in common_modes.items()}),
+        **transition_commander([corridor, table]),
+        "table": bulb_commands(table, [color_modes, common_modes]),
+        "corridor": bulb_commands(corridor, [common_modes]),
     })
 
     command = commands.get(sys.argv[1:])
     try:
-        start = datetime.now()
         command.run()
-        dump(datetime.now() - start)
     except Exception as e:
         e_str = (str(e).replace("'", "'\\''"))
         print(e_str, file=sys.stderr)  # TODO: remove
         print(traceback.format_exc())
         subprocess.call(f"alert 'bulb: {e_str}'", shell=True)
 
-    pass
-
 
 if __name__ == '__main__':
+    start = datetime.now()
     main()
+    dump(datetime.now() - start)

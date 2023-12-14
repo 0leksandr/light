@@ -40,8 +40,8 @@ class Transition:
         self.__to_time = to_time
         self.__state: TheState | None = None
 
-    async def run(self) -> None:
-        timeout_seconds = 60
+    def run(self) -> None:
+        timeout_seconds = 3
 
         interval_seconds = (self.__to_time - self.__from_time).total_seconds()
         if interval_seconds < 0:
@@ -63,12 +63,13 @@ class Transition:
 
     def __tick(self, progress: float) -> bool:
         state = self.__from_state.avg(self.__from_state, self.__to_state, 1 - progress)
-        if self.__state == state:
+        if self.__state is not None and self.__state == state:
             return True
         else:
             try:
                 state.apply()
-                self.__state = state
-                return True
             except Exception:
                 return False
+
+            self.__state = state
+            return True

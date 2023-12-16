@@ -41,13 +41,10 @@ class Transition:
         self.__state: TheState | None = None
 
     def run(self) -> None:
-        timeout_seconds = 3
-
         interval_seconds = (self.__to_time - self.__from_time).total_seconds()
         if interval_seconds < 0:
             self.__tick(0)
             return
-        last_update: datetime | None = None
         while True:
             now = datetime.now()
             progress = (now - self.__from_time).total_seconds() / interval_seconds
@@ -56,20 +53,14 @@ class Transition:
             if progress >= 1:
                 self.__tick(1)
                 return
-            if last_update is None or (now - last_update).total_seconds() >= timeout_seconds:
-                if self.__tick(progress):
-                    last_update = now
+            self.__tick(progress)
             time.sleep(1)
 
-    def __tick(self, progress: float) -> bool:
+    def __tick(self, progress: float) -> None:
         state = self.__from_state.avg(self.__from_state, self.__to_state, 1 - progress)
-        if self.__state is not None and self.__state == state:
-            return True
-        else:
+        if self.__state is None or self.__state != state:
             try:
                 state.apply()
             except Exception:
-                return False
-
+                return
             self.__state = state
-            return True

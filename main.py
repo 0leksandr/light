@@ -2,6 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Callable
+import json
 import math
 import multiprocessing
 import re
@@ -17,11 +18,6 @@ from my import AbstractMethodException, dump
 
 
 class Bulb(ABC):
-    @staticmethod
-    @abstractmethod
-    def get() -> Bulb:
-        raise AbstractMethodException()
-
     @abstractmethod
     def turn_on(self) -> None:
         raise AbstractMethodException()
@@ -39,11 +35,7 @@ class Bulb(ABC):
         raise AbstractMethodException()
 
     @abstractmethod
-    def general_info(self) -> None:
-        raise AbstractMethodException()
-
-    @abstractmethod
-    def state_info(self) -> None:
+    def print_info(self) -> None:
         raise AbstractMethodException()
 
     @abstractmethod
@@ -97,18 +89,17 @@ class Yeelight(ColorBulb):
         self.__bulb.turn_off()
 
     def white(self, temperature: int, brightness: int) -> None:
+        self.__bulb.turn_on()
         self.__bulb.set_brightness(brightness)
         self.__bulb.set_color_temp(temperature)
 
     def toggle(self) -> None:
         self.__bulb.toggle()
 
-    def general_info(self) -> None:
-        self.__bulb.get_capabilities()
-        self.__bulb.get_model_specs()
-
-    def state_info(self) -> None:
-        print(self.__bulb.get_properties())
+    def print_info(self) -> None:
+        dump(self.__bulb.get_capabilities())
+        dump(self.__bulb.get_model_specs())
+        # dump(self.__bulb.get_properties())
 
     def brightness(self) -> int:
         _property = "bright"
@@ -177,19 +168,20 @@ class Wiz(Bulb):
         self.__ip = ip
 
     @staticmethod
-    def get() -> Wiz:
+    def get(mac: str) -> Wiz:
         def get(ip: str) -> Wiz | None:
             try:
-                Wiz.__await_ip(ip, pywizlight.wizlight.get_bulbtype)
+                result = Wiz.__await_ip(ip, pywizlight.wizlight.getMac)
             except Exception:
                 return None
-            return Wiz(ip)
+            return Wiz(ip) \
+                if mac == result \
+                else None
 
-        nr_tries = 10
+        nr_tries = 1  # MAYBE: adjust
         for i in range(nr_tries):
-            bulb = parallel_first([(lambda ip=ip0: get(f"192.168.0.{ip}"))
-                                   for ip0 in range(100, 105)])
-            if bulb:
+            if bulb := parallel_first([(lambda ip=ip0: get(f"192.168.0.{ip}"))
+                                       for ip0 in range(100, 105)]):
                 return bulb
 
             # time.sleep(1)
@@ -202,43 +194,52 @@ class Wiz(Bulb):
         self.__await(self.__bulb.turn_off)
 
     def white(self, temperature: int, brightness: int) -> None:
-        brightness = max(0, math.floor(brightness * 2.5656 - 1.5656))
-        # await self.__bulb.turn_on(pywizlight.PilotBuilder(brightness=brightness, colortemp=temperature))
+        brightness = self.__convert_brightness(brightness, False)
         self.__await(self.__bulb.turn_on, [brightness, temperature])
 
     def toggle(self) -> None:
         self.__await(self.__bulb.lightSwitch)
 
-    def general_info(self) -> None:
+    def print_info(self) -> None:
+        # methods = [method_name for method_name in dir(self.__bulb)
+        #            if callable(getattr(self.__bulb, method_name))
+        #            ]
+        # dump(methods)
         for _callable in [self.__bulb.get_bulbtype,
                           # self.__bulb.getBulbConfig,
                           self.__bulb.getModelConfig]:
             print(self.__await(_callable))
 
-    def state_info(self) -> None:  # TODO: implement
-        methods = [method_name for method_name in dir(self.__bulb)
-                   # if callable(getattr(self.__bulb, method_name))
-                   ]
-        dump(methods)
-
-    def brightness(self) -> int:  # TODO: implement
-        raise Exception("method not implemented")
+    def brightness(self) -> int:
+        result = self.__await(self.__bulb.updateState, post=[pywizlight.bulb.PilotParser.get_brightness])
+        return self.__convert_brightness(int(result), True)
 
     @staticmethod
-    def __await_ip(ip: str, method, args: list | None = None) -> str:
+    def __await_ip(ip: str, method, args: list | None = None, post: list | None = None) -> str:
         args = [sys.executable,
                 re.sub("/[^/]+$", "/wiz.py", sys.argv[0]),
                 ip,
                 method.__name__,
-                *[str(arg) for arg in (args or [])]]
+                json.dumps(args or []),
+                json.dumps([post_method.__name__ for post_method in (post or [])])]
         res = subprocess.run(args, capture_output=True, text=True)
         if res.stderr:
             raise Exception(res.stderr)
         else:
-            return res.stdout
+            return res.stdout.rstrip("\n")
 
-    def __await(self, method, args: list | None = None) -> str:
-        return Wiz.__await_ip(self.__ip, method, args)
+    def __await(self, method, args: list | None = None, post: list | None = None) -> str:
+        return Wiz.__await_ip(self.__ip, method, args, post)
+
+    @staticmethod
+    def __convert_brightness(value: int, to_percents: bool) -> int:
+        if to_percents:
+            # return round(value * 99/254 + 155/254)
+            return round(value / 255 * 100)
+        else:
+            # return max(0, math.floor(value * 2.5656 - 1.5656))
+            # return round(value * 254/99 - 155/99)
+            return round(value / 100 * 255)
 
 
 class Mode(ABC):
@@ -278,8 +279,7 @@ class ToggleMode(Mode):
 
 class InfoMode(Mode):
     def apply(self, bulb: Bulb) -> None:
-        # print(bulb.state_info())
-        print(bulb.general_info())
+        bulb.print_info()
 
 
 class BrightnessInfoMode(Mode):
@@ -299,12 +299,23 @@ class ColorMode(Mode):
         bulb.color(self.__red, self.__green, self.__blue, self.__brightness)
 
 
-class ErrorMode(Mode):
-    def __init__(self, description: str) -> None:
-        self.__description = description
+class TransitionMode(Mode):
+    def __init__(self,
+                 from_mode: WhiteMode,
+                 from_time: datetime,
+                 to_mode: WhiteMode,
+                 to_time: datetime) -> None:
+        self.__from_mode = from_mode
+        self.__from_time = from_time
+        self.__to_mode = to_mode
+        self.__to_time = to_time
 
     def apply(self, bulb: Bulb) -> None:
-        print(self.__description, file=sys.stderr)
+        trans = transition.Transition(self.__from_mode.to_state(bulb),
+                                      self.__from_time,
+                                      self.__to_mode.to_state(bulb),
+                                      self.__to_time)
+        trans.run()
 
 
 class WhiteState(transition.State):
@@ -325,25 +336,6 @@ class WhiteState(transition.State):
         return WhiteState(WhiteState._value(a.__temperature, b.__temperature, weight_a),
                           WhiteState._value(a.__brightness, b.__brightness, weight_a),
                           a.__bulb)
-
-
-class TransitionMode(Mode):
-    def __init__(self,
-                 from_mode: WhiteMode,
-                 from_time: datetime,
-                 to_mode: WhiteMode,
-                 to_time: datetime) -> None:
-        self.__from_mode = from_mode
-        self.__from_time = from_time
-        self.__to_mode = to_mode
-        self.__to_time = to_time
-
-    def apply(self, bulb: Bulb) -> None:
-        trans = transition.Transition(self.__from_mode.to_state(bulb),
-                                      self.__from_time,
-                                      self.__to_mode.to_state(bulb),
-                                      self.__to_time)
-        trans.run()
 
 
 class BulbProvider:
@@ -477,14 +469,13 @@ class TransitionCommander(Commander):
 
 def main() -> None:
     table = BulbProvider(lambda: Yeelight.get())
-    corridor = BulbProvider(lambda: Wiz.get())
+    corridor = BulbProvider(lambda: Wiz.get("d8a0110a1bd4"))
 
     white_modes: dict[str, WhiteMode] = {
-        "day":      WhiteMode(3500, 100),
+        "day":      WhiteMode(3500, 100),  # 2700
         "twilight": WhiteMode(3000, 60),
         "evening":  WhiteMode(3000, 30),
         "night":    WhiteMode(1700, 1),
-        # "midnight": ColorMode(190, 100, 0, 1),  # 16736512
     }
 
     color_modes: dict[str, ColorMode] = {
@@ -495,9 +486,12 @@ def main() -> None:
 
     common_modes: dict[str, Mode] = {
         **white_modes,
-        "on":         StateMode(True),
-        "off":        StateMode(False),
-        "toggle":     ToggleMode(),
+        "on":     StateMode(True),
+        "off":    StateMode(False),
+        "toggle": ToggleMode(),
+    }
+
+    bulb_modes: dict[str, Mode] = {
         "info":       InfoMode(),
         "brightness": BrightnessInfoMode(),
     }
@@ -516,8 +510,8 @@ def main() -> None:
         **{name: SingleCommander(MultiCommand([BulbCommand(bulb, mode) for bulb in [corridor, table]]))
            for name, mode in common_modes.items()},
         **transition_commander([corridor, table]),
-        "table": bulb_commands(table, [color_modes, common_modes]),
-        "corridor": bulb_commands(corridor, [common_modes]),
+        "table":    bulb_commands(table, [color_modes, common_modes, bulb_modes]),
+        "corridor": bulb_commands(corridor, [common_modes, bulb_modes]),
     })
 
     command = commands.get(sys.argv[1:])
@@ -531,6 +525,4 @@ def main() -> None:
 
 
 if __name__ == '__main__':
-    start = datetime.now()
     main()
-    dump(datetime.now() - start)

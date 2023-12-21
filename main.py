@@ -17,6 +17,57 @@ import yeelight
 from my import AbstractMethodException, dump
 
 
+def parallel_all(functions: list[callable]) -> list:
+    results = []
+
+    def run_function(func: callable):
+        try:
+            results.append(func())
+        except Exception as e:
+            dump(e)
+
+    processes = [multiprocessing.Process(target=run_function, args=(func,)) for func in functions]
+
+    for process in processes:
+        process.start()
+
+    for process in processes:
+        process.join()
+
+    return results
+
+
+def parallel_first(functions: list[callable]):  # by ChatGPT
+    queue = multiprocessing.Manager().Queue()
+
+    def run_function(func):
+        try:
+            queue.put(func())
+        except Exception as e:
+            dump(e)
+
+    processes = [multiprocessing.Process(target=run_function, args=(func,)) for func in functions]
+
+    for process in processes:
+        process.start()
+
+    # Wait for the first non-empty result
+    result = None
+    while result is None and any(process.is_alive() for process in processes):
+        result = queue.get()
+
+    # Terminate all processes
+    for process in processes:
+        if process.is_alive():
+            process.terminate()
+
+    # Wait for all processes to finish
+    for process in processes:
+        process.join()
+
+    return result
+
+
 class Bulb(ABC):
     @abstractmethod
     def turn_on(self) -> None:
@@ -71,13 +122,13 @@ class Yeelight(ColorBulb):
         nr_tries = 10
         for i in range(nr_tries):
             for ip0 in range(100, 105):
+                bulb = yeelight.Bulb(f"192.168.0.{ip0}")
                 try:
-                    bulb = yeelight.Bulb(f"192.168.0.{ip0}")
                     # bulb.get_capabilities()
                     bulb.get_properties()
                     # if run_with_timeout(bulb.get_properties, 1):
                     return Yeelight(bulb)
-                except Exception as exception:
+                except yeelight.main.BulbException as exception:
                     exceptions.append(exception)
             # time.sleep(1)
         raise exceptions[-1]
@@ -108,57 +159,6 @@ class Yeelight(ColorBulb):
     def color(self, red: int, green: int, blue: int, brightness: int) -> None:
         self.__bulb.set_rgb(red, green, blue)
         self.__bulb.set_brightness(brightness)
-
-
-def parallel_all(functions: list) -> list:
-    results = []
-
-    def run_function(func):
-        try:
-            results.append(func())
-        except Exception as e:
-            dump(e)
-
-    processes = [multiprocessing.Process(target=run_function, args=(func,)) for func in functions]
-
-    for process in processes:
-        process.start()
-
-    for process in processes:
-        process.join()
-
-    return results
-
-
-def parallel_first(functions: list[callable]):  # by ChatGPT
-    queue = multiprocessing.Manager().Queue()
-
-    def run_function(func):
-        try:
-            queue.put(func())
-        except Exception as e:
-            dump(e)
-
-    processes = [multiprocessing.Process(target=run_function, args=(func,)) for func in functions]
-
-    for process in processes:
-        process.start()
-
-    # Wait for the first non-empty result
-    result = None
-    while result is None and any(process.is_alive() for process in processes):
-        result = queue.get()
-
-    # Terminate all processes
-    for process in processes:
-        if process.is_alive():
-            process.terminate()
-
-    # Wait for all processes to finish
-    for process in processes:
-        process.join()
-
-    return result
 
 
 class Wiz(Bulb):
@@ -259,6 +259,20 @@ class WhiteMode(Mode):
 
     def to_state(self, bulb: Bulb) -> WhiteState:
         return WhiteState(self.__temperature, self.__brightness, bulb)
+
+
+class WhiteBetweenMode(Mode):
+    def __init__(self, _from: WhiteMode, to: WhiteMode, progress_percents: int) -> None:
+        self.__from = _from
+        self.__to = to
+        self.__progress_percents = progress_percents
+
+    def apply(self, bulb: Bulb) -> None:
+        (WhiteState
+         .avg(self.__from.to_state(bulb),
+              self.__to.to_state(bulb),
+              1 - self.__progress_percents / 100)
+         .apply())
 
 
 class StateMode(Mode):
@@ -417,6 +431,18 @@ class TimeArgument(Argument):
         return [datetime.now().strftime("%H:%M")]
 
 
+class PercentsArgument(Argument):
+    def convert(self, value: str) -> int | None:
+        if re.match("^\\d+$", value):
+            int_val = int(value)
+            if int_val <= 100:
+                return int_val
+        return None
+
+    def options(self) -> list[str]:
+        return ["25", "50", "75"]
+
+
 class Commander(ABC):
     @abstractmethod
     def get(self, keys: list[str]) -> Command:
@@ -430,6 +456,8 @@ class SingleCommander(Commander):
     def get(self, keys: list[str]) -> Command:
         if len(keys) == 0:
             return self.__command
+        elif keys == ["help"]:
+            return OptionsCommand([])
         else:
             raise Exception("Unknown option(s): " + " ".join(keys))
 
@@ -445,15 +473,19 @@ class ListCommander(Commander):
             return OptionsCommand(list(self.__commanders.keys()))
 
 
-class TransitionCommander(Commander):
-    def __init__(self, bulbs: list[BulbProvider], modes: dict[str, WhiteMode]) -> None:
+class ArgumentsCommander(Commander):
+    @staticmethod
+    @abstractmethod
+    def get_mode(arguments: list) -> Mode:
+        raise AbstractMethodException()
+
+    def __init__(self, bulbs: list[BulbProvider], arguments: list[Argument]) -> None:
         self.__bulbs = bulbs
-        self.__arguments = [ArgumentSelect(modes),
-                            TimeArgument(),
-                            ArgumentSelect(modes),
-                            TimeArgument()]
+        self.__arguments = arguments
 
     def get(self, keys: list[str]) -> Command:
+        if len(keys) > len(self.__arguments):
+            return OptionsCommand([])
         arguments = []
         for i in range(len(keys)):
             argument = self.__arguments[i].convert(keys[i])
@@ -463,8 +495,33 @@ class TransitionCommander(Commander):
                 arguments.append(argument)
         if len(arguments) < len(self.__arguments):
             return OptionsCommand(self.__arguments[len(arguments)].options())
-        return MultiCommand([BulbCommand(bulb, TransitionMode(*arguments))
+        return MultiCommand([BulbCommand(bulb, self.get_mode(arguments))
                              for bulb in self.__bulbs])
+
+
+class TransitionCommander(ArgumentsCommander):
+    def __init__(self, bulbs: list[BulbProvider], modes: dict[str, WhiteMode]) -> None:
+        super().__init__(bulbs,
+                         [ArgumentSelect(modes),
+                          TimeArgument(),
+                          ArgumentSelect(modes),
+                          TimeArgument()])
+
+    @staticmethod
+    def get_mode(arguments: list) -> Mode:
+        return TransitionMode(*arguments)
+
+
+class WhiteBetweenCommander(ArgumentsCommander):
+    def __init__(self, bulbs: list[BulbProvider], modes: dict[str, WhiteMode]) -> None:
+        super().__init__(bulbs,
+                         [ArgumentSelect(modes),
+                          ArgumentSelect(modes),
+                          PercentsArgument()])
+
+    @staticmethod
+    def get_mode(arguments: list) -> Mode:
+        return WhiteBetweenMode(*arguments)
 
 
 def main() -> None:
@@ -472,9 +529,9 @@ def main() -> None:
     corridor = BulbProvider(lambda: Wiz.get("d8a0110a1bd4"))
 
     white_modes: dict[str, WhiteMode] = {
-        "day":      WhiteMode(3500, 100),  # 2700
-        "twilight": WhiteMode(3000, 60),
-        "evening":  WhiteMode(3000, 30),
+        "day":      WhiteMode(2700, 100),
+        "twilight": WhiteMode(2700, 60),
+        "evening":  WhiteMode(2700, 30),
         "night":    WhiteMode(1700, 1),
     }
 
@@ -496,20 +553,23 @@ def main() -> None:
         "brightness": BrightnessInfoMode(),
     }
 
-    def transition_commander(bulbs: list[BulbProvider]) -> dict[str, TransitionCommander]:
-        return {"transition": TransitionCommander(bulbs, white_modes)}
+    def dynamic_commander(bulbs: list[BulbProvider]) -> dict[str, ArgumentsCommander]:
+        return {
+            "transition": TransitionCommander(bulbs, white_modes),
+            "between":    WhiteBetweenCommander(bulbs, white_modes),
+        }
 
     def bulb_commands(bulb: BulbProvider, modes: list[dict[str, Mode]]) -> ListCommander:
         dic: dict[str, Commander] = {name: SingleCommander(BulbCommand(bulb, mode))
                                      for modes_dic in modes
                                      for name, mode in modes_dic.items()}
-        dic |= transition_commander([bulb])
+        dic |= dynamic_commander([bulb])
         return ListCommander(dic)
 
     commands = ListCommander({
         **{name: SingleCommander(MultiCommand([BulbCommand(bulb, mode) for bulb in [corridor, table]]))
            for name, mode in common_modes.items()},
-        **transition_commander([corridor, table]),
+        **dynamic_commander([corridor, table]),
         "table":    bulb_commands(table, [color_modes, common_modes, bulb_modes]),
         "corridor": bulb_commands(corridor, [common_modes, bulb_modes]),
     })

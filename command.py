@@ -2,6 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 import re
+import sys
 
 from bulb import BulbProvider
 from mode import Mode
@@ -29,9 +30,13 @@ class MultiCommand(Command):
         self.__commands = commands
 
     def run(self) -> None:
-        # for command in self.__commands:
-        #     command.run()
-        parallel_all([command.run for command in self.__commands])
+        def run_command(command: Command) -> None:
+            try:
+                command.run()
+            except Exception as e:
+                print(str(e).replace("'", "'\\''"), file=sys.stderr)
+
+        parallel_all([(lambda c=command: run_command(c)) for command in self.__commands])
 
 
 class OptionsCommand(Command):

@@ -201,7 +201,7 @@ def main() -> None:
     try:
         command.run()
     except Exception as e:
-        e_str = (str(e).replace("'", "'\\''"))
+        e_str = str(e).replace("'", "'\\''")
         print(e_str, file=sys.stderr)  # TODO: remove
         print(traceback.format_exc())
         subprocess.call(f"alert 'bulb: {e_str}'", shell=True)

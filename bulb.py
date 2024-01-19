@@ -6,6 +6,7 @@ import math
 import subprocess
 import sys
 import re
+import time
 
 import pywizlight
 import yeelight
@@ -116,22 +117,24 @@ class Wiz(Bulb):
     @staticmethod
     def get(mac: str) -> Wiz:
         def get(ip: str) -> Wiz | None:
+            # noinspection PyUnresolvedReferences
             try:
                 result = Wiz.__await_ip(ip, pywizlight.wizlight.getMac)
-            except Exception:
+            except pywizlight.exceptions.WizLightConnectionError:
                 return None
             return Wiz(ip) \
                 if mac == result \
                 else None
 
-        nr_tries = 1  # MAYBE: adjust
-        for i in range(nr_tries):
-            if bulb := parallel_first([(lambda ip=ip0: get(f"192.168.0.{ip}"))
-                                       for ip0 in range(100, 106)]):
-                return bulb
+        def timeout() -> False:
+            time.sleep(2)
+            return False
 
-            # time.sleep(1)
-        raise Exception("can not discover bulb")
+        if bulb := parallel_first([(lambda ip=ip0: get(f"192.168.0.{ip}"))
+                                   for ip0 in range(100, 106)] + [timeout]):
+            return bulb
+        else:
+            raise Exception("can not discover Wiz bulb")
 
     def turn_on(self) -> None:
         self.__await(self.__bulb.turn_on)

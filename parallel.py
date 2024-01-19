@@ -30,8 +30,8 @@ def parallel_first(functions: list[callable]):  # by ChatGPT
     def run_function(func):
         try:
             queue.put(func())
-        except Exception as e:
-            dump(e)
+        except:
+            pass
 
     processes = [multiprocessing.Process(target=run_function, args=(func,)) for func in functions]
 

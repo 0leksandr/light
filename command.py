@@ -2,9 +2,9 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 import re
-import sys
 
 from bulb import BulbProvider
+from err import log_exception
 from mode import Mode
 from parallel import parallel_all
 from my import AbstractMethodException
@@ -34,7 +34,7 @@ class MultiCommand(Command):
             try:
                 command.run()
             except Exception as e:
-                print(str(e).replace("'", "'\\''"), file=sys.stderr)
+                log_exception(e)
 
         parallel_all([(lambda c=command: run_command(c)) for command in self.__commands])
 

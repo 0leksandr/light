@@ -1,9 +1,12 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
-from my import AbstractMethodException
 from typing import TypeVar
 import time
+
+from err import log_exception
+
+from my import AbstractMethodException
 
 
 class State(ABC):
@@ -61,6 +64,7 @@ class Transition:
         if self.__state is None or self.__state != state:
             try:
                 state.apply()
-            except Exception:
+            except Exception as e:
+                log_exception(e)
                 return
             self.__state = state

@@ -1,7 +1,7 @@
 from __future__ import annotations
 import multiprocessing
 
-from my import dump
+from err import log_exception
 
 
 def parallel_all(functions: list[callable]) -> list:
@@ -11,7 +11,7 @@ def parallel_all(functions: list[callable]) -> list:
         try:
             results.append(func())
         except Exception as e:
-            dump(e)
+            log_exception(e)
 
     processes = [multiprocessing.Process(target=run_function, args=(func,)) for func in functions]
 
@@ -30,8 +30,8 @@ def parallel_first(functions: list[callable]):  # by ChatGPT
     def run_function(func):
         try:
             queue.put(func())
-        except:
-            pass
+        except Exception as e:
+            log_exception(e)
 
     processes = [multiprocessing.Process(target=run_function, args=(func,)) for func in functions]
 

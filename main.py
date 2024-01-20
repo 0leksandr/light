@@ -1,7 +1,5 @@
 from __future__ import annotations
-import subprocess
 import sys
-import traceback
 
 from bulb import BulbProvider, Wiz, Yeelight
 from command import (BulbCommand,
@@ -12,6 +10,7 @@ from command import (BulbCommand,
                      ListCommander,
                      TransitionCommander,
                      WhiteBetweenCommander)
+from err import alert_exception
 from mode import (Mode,
                   StateMode,
                   ToggleMode,
@@ -75,10 +74,7 @@ def main() -> None:
     try:
         command.run()
     except Exception as e:
-        e_str = str(e).replace("'", "'\\''")
-        print(e_str, file=sys.stderr)  # TODO: remove
-        print(traceback.format_exc())
-        subprocess.call(f"alert 'bulb: {e_str}'", shell=True)
+        alert_exception(e)
 
 
 if __name__ == '__main__':

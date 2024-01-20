@@ -126,6 +126,7 @@ class Wiz(Bulb):
                 if mac == result \
                 else None
 
+        # TODO: implement normal timeout in `parallel` - in order to not wait for timeout, when all callables fail
         def timeout() -> False:
             time.sleep(2)
             return False

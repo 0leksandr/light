@@ -5,7 +5,7 @@ import re
 
 from bulb import BulbProvider
 from err import log_exception
-from mode import Mode
+from mode import Mode, TransitionMode, WhiteMode, WhiteBetweenMode
 from parallel import parallel_all
 from my import AbstractMethodException
 
@@ -151,3 +151,28 @@ class ArgumentsCommander(Commander):
             return OptionsCommand(self.__arguments[len(arguments)].options())
         return MultiCommand([BulbCommand(bulb, self.get_mode(arguments))
                              for bulb in self.__bulbs])
+
+
+class TransitionCommander(ArgumentsCommander):
+    def __init__(self, bulbs: list[BulbProvider], modes: dict[str, WhiteMode]) -> None:
+        super().__init__(bulbs,
+                         [ArgumentSelect(modes),
+                          TimeArgument(),
+                          ArgumentSelect(modes),
+                          TimeArgument()])
+
+    @staticmethod
+    def get_mode(arguments: list) -> Mode:
+        return TransitionMode(*arguments)
+
+
+class WhiteBetweenCommander(ArgumentsCommander):
+    def __init__(self, bulbs: list[BulbProvider], modes: dict[str, WhiteMode]) -> None:
+        super().__init__(bulbs,
+                         [ArgumentSelect(modes),
+                          ArgumentSelect(modes),
+                          PercentsArgument()])
+
+    @staticmethod
+    def get_mode(arguments: list) -> Mode:
+        return WhiteBetweenMode(*arguments)

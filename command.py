@@ -4,8 +4,7 @@ from datetime import datetime
 import re
 
 from bulb import BulbProvider
-from err import log_exception
-from mode import Mode, TransitionMode, WhiteMode, WhiteBetweenMode
+from mode import Mode, TransitionMode, WhiteMode, WhiteBetweenMode, Scene
 from parallel import parallel_all
 from my import AbstractMethodException
 
@@ -25,26 +24,28 @@ class BulbCommand(Command):
         self.__mode.apply(self.__bulb.get())
 
 
+class SceneCommand(Command):
+    def __init__(self, scene: Scene) -> None:
+        self.__scene = scene
+
+    def run(self) -> None:
+        self.__scene.apply()
+
+
 class MultiCommand(Command):
     def __init__(self, commands: list[Command]) -> None:
         self.__commands = commands
 
     def run(self) -> None:
-        def run_command(command: Command) -> None:
-            try:
-                command.run()
-            except Exception as e:
-                log_exception(e)
-
-        parallel_all([(lambda c=command: run_command(c)) for command in self.__commands])
+        parallel_all([command.run for command in self.__commands])
 
 
 class OptionsCommand(Command):
     def __init__(self, options: list[str]) -> None:
-        self.__options = options
+        self.options = options  # MAYBE: refactor
 
     def run(self) -> None:
-        print("Options: " + " ".join(self.__options))
+        print("Options: " + " ".join(self.options))
 
 
 class Argument(ABC):
@@ -116,7 +117,7 @@ class SingleCommander(Commander):
             raise Exception("Unknown option(s): " + " ".join(keys))
 
 
-class ListCommander(Commander):
+class TreeCommander(Commander):
     def __init__(self, commanders: dict[str, Commander]) -> None:
         self.__commanders = commanders
 
@@ -125,6 +126,21 @@ class ListCommander(Commander):
             return self.__commanders[keys[0]].get(keys[1:])
         else:
             return OptionsCommand(list(self.__commanders.keys()))
+
+
+class JoinedCommander(Commander):
+    def __init__(self, commanders: list[Commander]) -> None:
+        self.__commanders = commanders
+
+    def get(self, keys: list[str]) -> Command:
+        options = []
+        for commander in self.__commanders:
+            command = commander.get(keys)
+            if isinstance(command, OptionsCommand):  # MAYBE: refactor
+                options.extend(command.options)
+            else:
+                return command
+        return OptionsCommand(list(set(options)))
 
 
 class ArgumentsCommander(Commander):

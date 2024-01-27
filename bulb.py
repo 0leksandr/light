@@ -108,6 +108,10 @@ class Yeelight(ColorBulb):
         self.__bulb.set_brightness(brightness)
 
 
+class WizException(Exception):
+    pass
+
+
 class Wiz(Bulb):
     __bulb = pywizlight.wizlight
 
@@ -121,6 +125,8 @@ class Wiz(Bulb):
             try:
                 result = Wiz.__await_ip(ip, pywizlight.wizlight.getMac)
             except pywizlight.exceptions.WizLightConnectionError:
+                return None
+            except WizException:
                 return None
             return Wiz(ip) \
                 if mac == result \
@@ -174,7 +180,7 @@ class Wiz(Bulb):
                 json.dumps([post_method.__name__ for post_method in (post or [])])]
         res = subprocess.run(args, capture_output=True, text=True)
         if res.stderr:
-            raise Exception(res.stderr)
+            raise WizException(res.stderr)
         else:
             return res.stdout.rstrip("\n")
 
@@ -193,8 +199,12 @@ class Wiz(Bulb):
 
 
 class BulbProvider:
-    def __init__(self, get_bulb: Callable[[], Bulb]) -> None:
+    def __init__(self, name: str, get_bulb: Callable[[], Bulb]) -> None:
+        self.__name = name
         self.__get = get_bulb
 
     def get(self) -> Bulb:
         return self.__get()
+
+    def name(self) -> str:
+        return self.__name

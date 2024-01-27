@@ -3,32 +3,46 @@ import sys
 
 from bulb import BulbProvider, Wiz, Yeelight
 from command import (BulbCommand,
-                     MultiCommand,
+                     SceneCommand,
                      Commander,
                      SingleCommander,
+                     JoinedCommander,
                      ArgumentsCommander,
-                     ListCommander,
+                     TreeCommander,
                      TransitionCommander,
                      WhiteBetweenCommander)
 from err import alert_exception
 from mode import (Mode,
+                  BulbMode,
                   StateMode,
                   ToggleMode,
                   WhiteMode,
                   ColorMode,
                   InfoMode,
-                  BrightnessInfoMode)
+                  BrightnessInfoMode,
+                  Scene)
 
 
 def main() -> None:
-    table = BulbProvider(lambda: Yeelight.get())
-    corridor = BulbProvider(lambda: Wiz.get("d8a0110a1bd4"))
+    table = BulbProvider("table", lambda: Yeelight.get())
+    corridor = BulbProvider("corridor", lambda: Wiz.get("d8a0110a1bd4"))
 
     white_modes: dict[str, WhiteMode] = {
         "day":      WhiteMode(2700, 100),
         "twilight": WhiteMode(2700, 60),
         "evening":  WhiteMode(2700, 30),
         "night":    WhiteMode(1700, 1),
+    }
+
+    white_scenes: dict[str, Scene] = {
+        "day":      Scene([BulbMode(table, WhiteMode(2700, 100)),
+                           BulbMode(corridor, WhiteMode(2700, 100))]),
+        "twilight": Scene([BulbMode(table, WhiteMode(2700, 60)),
+                           BulbMode(corridor, WhiteMode(2700, 60))]),
+        "evening":  Scene([BulbMode(table, WhiteMode(2700, 30)),
+                           BulbMode(corridor, WhiteMode(2700, 30))]),
+        "night":    Scene([BulbMode(table, WhiteMode(1700, 1)),
+                           BulbMode(corridor, WhiteMode(1700, 1))]),
     }
 
     color_modes: dict[str, ColorMode] = {
@@ -38,13 +52,9 @@ def main() -> None:
     }
 
     common_modes: dict[str, Mode] = {
-        **white_modes,
-        "on":     StateMode(True),
-        "off":    StateMode(False),
-        "toggle": ToggleMode(),
-    }
-
-    bulb_modes: dict[str, Mode] = {
+        "on":         StateMode(True),
+        "off":        StateMode(False),
+        "toggle":     ToggleMode(),
         "info":       InfoMode(),
         "brightness": BrightnessInfoMode(),
     }
@@ -55,20 +65,26 @@ def main() -> None:
             "between":    WhiteBetweenCommander(bulbs, white_modes),
         }
 
-    def bulb_commands(bulb: BulbProvider, modes: list[dict[str, Mode]]) -> ListCommander:
+    def bulb_commands(bulb: BulbProvider, modes: list[dict[str, Mode]]) -> TreeCommander:
         dic: dict[str, Commander] = {name: SingleCommander(BulbCommand(bulb, mode))
                                      for modes_dic in modes
                                      for name, mode in modes_dic.items()}
         dic |= dynamic_commander([bulb])
-        return ListCommander(dic)
+        return TreeCommander(dic)
 
-    commands = ListCommander({
-        **{name: SingleCommander(MultiCommand([BulbCommand(bulb, mode) for bulb in [corridor, table]]))
-           for name, mode in common_modes.items()},
-        **dynamic_commander([corridor, table]),
-        "table":    bulb_commands(table, [color_modes, common_modes, bulb_modes]),
-        "corridor": bulb_commands(corridor, [common_modes, bulb_modes]),
-    })
+    commands = JoinedCommander([
+        TreeCommander({
+            **{name: SingleCommander(SceneCommand(scene)) for name, scene in white_scenes.items()},
+            **dynamic_commander([corridor, table]),
+            "table":    bulb_commands(table, [color_modes, common_modes]),
+            "corridor": bulb_commands(corridor, [common_modes]),
+        }),
+        JoinedCommander([TreeCommander({
+            bulb_mode.bulb.name(): TreeCommander({name: SingleCommander(BulbCommand(bulb_mode.bulb, bulb_mode.mode))}),
+        })
+            for name, scene in white_scenes.items()
+            for bulb_mode in scene.bulbs_modes]),
+    ])
 
     command = commands.get(sys.argv[1:])
     try:

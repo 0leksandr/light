@@ -2,7 +2,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from bulb import Bulb, ColorBulb
+from bulb import Bulb, ColorBulb, BulbProvider
+from parallel import parallel_all
 import transition
 
 from my import AbstractMethodException
@@ -116,3 +117,28 @@ class WhiteState(transition.State):
         return WhiteState(WhiteState._value(a.__temperature, b.__temperature, weight_a),
                           WhiteState._value(a.__brightness, b.__brightness, weight_a),
                           a.__bulb)
+
+
+class ScenePart(ABC):
+    def apply(self) -> None:
+        raise AbstractMethodException()
+
+
+class BulbMode(ScenePart):  # TODO: rename
+    def __init__(self, bulb: BulbProvider, mode: Mode) -> None:
+        self.bulb = bulb
+        self.mode = mode
+
+    def apply(self) -> None:
+        self.mode.apply(self.bulb.get())
+
+
+class Scene(ScenePart):
+    def __init__(self, bulbs_modes: list[BulbMode]) -> None:
+        self.bulbs_modes = bulbs_modes
+
+    def apply(self) -> None:
+        parallel_all([mode.apply for mode in self.bulbs_modes])
+
+    def bulbs(self) -> list[BulbProvider]:
+        return [bulb_mode.bulb for bulb_mode in self.bulbs_modes]

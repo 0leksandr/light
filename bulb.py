@@ -203,6 +203,9 @@ class BulbProvider:
         self.__name = name
         self.__get = get_bulb
 
+    def __eq__(self, other: BulbProvider) -> bool:
+        return self.__name == other.__name
+
     def get(self) -> Bulb:
         return self.__get()
 

@@ -61,7 +61,7 @@ def main() -> None:
 
     def dynamic_commander(bulbs: list[BulbProvider]) -> dict[str, ArgumentsCommander]:
         return {
-            "transition": TransitionCommander(bulbs, white_modes),
+            "transition": TransitionCommander(white_scenes),
             "between":    WhiteBetweenCommander(bulbs, white_modes),
         }
 

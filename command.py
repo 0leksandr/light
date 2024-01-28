@@ -42,10 +42,13 @@ class MultiCommand(Command):
 
 class OptionsCommand(Command):
     def __init__(self, options: list[str]) -> None:
-        self.options = options  # MAYBE: refactor
+        self.__options = options
 
     def run(self) -> None:
-        print("Options: " + " ".join(self.options))
+        print("Options: " + " ".join(self.__options))
+
+    def __add__(self, other: OptionsCommand) -> OptionsCommand:
+        return OptionsCommand(list(set(self.__options + other.__options)))
 
 
 class Argument(ABC):
@@ -78,7 +81,7 @@ class TimeArgument(Argument):
         elif match_hm := re.match("^(\\d{2}):(\\d{2})$", value):
             return datetime.now().replace(hour=int(match_hm[1]), minute=int(match_hm[2]), second=0)
         elif match_hms := re.match("^(\\d{2}):(\\d{2}):(\\d{2})$", value):
-            return datetime.now().replace(hour=int(match_hms[1]), minute=int(match_hms[2]), second=match_hms[3])
+            return datetime.now().replace(hour=int(match_hms[1]), minute=int(match_hms[2]), second=int(match_hms[3]))
         else:
             return None
 
@@ -133,20 +136,20 @@ class JoinedCommander(Commander):
         self.__commanders = commanders
 
     def get(self, keys: list[str]) -> Command:
-        options = []
+        options = OptionsCommand([])
         for commander in self.__commanders:
             command = commander.get(keys)
             if isinstance(command, OptionsCommand):  # MAYBE: refactor
-                options.extend(command.options)
+                options += command
             else:
                 return command
-        return OptionsCommand(list(set(options)))
+        return options
 
 
 class ArgumentsCommander(Commander):
     @staticmethod
     @abstractmethod
-    def get_mode(arguments: list) -> Mode:
+    def get_mode(bulb: BulbProvider, arguments: list) -> Mode:
         raise AbstractMethodException()
 
     def __init__(self, bulbs: list[BulbProvider], arguments: list[Argument]) -> None:
@@ -165,21 +168,37 @@ class ArgumentsCommander(Commander):
                 arguments.append(argument)
         if len(arguments) < len(self.__arguments):
             return OptionsCommand(self.__arguments[len(arguments)].options())
-        return MultiCommand([BulbCommand(bulb, self.get_mode(arguments))
+        return MultiCommand([BulbCommand(bulb, self.get_mode(bulb, arguments))
                              for bulb in self.__bulbs])
 
 
 class TransitionCommander(ArgumentsCommander):
-    def __init__(self, bulbs: list[BulbProvider], modes: dict[str, WhiteMode]) -> None:
+    def __init__(self, scenes: dict[str, Scene]) -> None:
+        bulbs = [bulb for scene in scenes.values() for bulb in scene.bulbs()]
+        # bulbs = list(set(bulbs))
+        bulbs = list({id(bulb): bulb for bulb in bulbs}.values())
         super().__init__(bulbs,
-                         [ArgumentSelect(modes),
+                         [ArgumentSelect(scenes),
                           TimeArgument(),
-                          ArgumentSelect(modes),
+                          ArgumentSelect(scenes),
                           TimeArgument()])
 
     @staticmethod
-    def get_mode(arguments: list) -> Mode:
-        return TransitionMode(*arguments)
+    def get_mode(bulb: BulbProvider, arguments: list) -> Mode:
+        def scene_to_mode(scene: Scene) -> WhiteMode:
+            for bulb_mode in scene.bulbs_modes:
+                if bulb_mode.bulb == bulb:
+                    mode = bulb_mode.mode
+                    if isinstance(mode, WhiteMode):
+                        return mode
+                    else:
+                        raise Exception(f"Mode for bulb {bulb.name()} is not a WhiteMode")  # MAYBE: refactor
+            raise Exception(f"Can not define mode for bulb {bulb.name()}")
+
+        return TransitionMode(scene_to_mode(arguments[0]),
+                              arguments[1],
+                              scene_to_mode(arguments[2]),
+                              arguments[3])
 
 
 class WhiteBetweenCommander(ArgumentsCommander):
@@ -190,5 +209,5 @@ class WhiteBetweenCommander(ArgumentsCommander):
                           PercentsArgument()])
 
     @staticmethod
-    def get_mode(arguments: list) -> Mode:
+    def get_mode(bulb: BulbProvider, arguments: list) -> Mode:
         return WhiteBetweenMode(*arguments)

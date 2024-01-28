@@ -125,10 +125,12 @@ class TreeCommander(Commander):
         self.__commanders = commanders
 
     def get(self, keys: list[str]) -> Command:
-        if len(keys) > 0 and keys[0] in self.__commanders:
+        if keys == [] or keys == ["help"]:
+            return OptionsCommand(list(self.__commanders.keys()))
+        elif keys[0] in self.__commanders:
             return self.__commanders[keys[0]].get(keys[1:])
         else:
-            return OptionsCommand(list(self.__commanders.keys()))
+            return OptionsCommand([])
 
 
 class JoinedCommander(Commander):

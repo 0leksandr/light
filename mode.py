@@ -125,7 +125,7 @@ class ScenePart(ABC):
 
 
 class BulbMode(ScenePart):  # TODO: rename
-    def __init__(self, bulb: BulbProvider, mode: Mode) -> None:
+    def __init__(self, bulb: BulbProvider, mode: WhiteMode) -> None:
         self.bulb = bulb
         self.mode = mode
 
@@ -135,10 +135,16 @@ class BulbMode(ScenePart):  # TODO: rename
 
 class Scene(ScenePart):
     def __init__(self, bulbs_modes: list[BulbMode]) -> None:
-        self.bulbs_modes = bulbs_modes
+        self.__bulbs_modes = bulbs_modes
 
     def apply(self) -> None:
-        parallel_all([mode.apply for mode in self.bulbs_modes])
+        parallel_all([mode.apply for mode in self.__bulbs_modes])
 
-    def bulbs(self) -> list[BulbProvider]:
-        return [bulb_mode.bulb for bulb_mode in self.bulbs_modes]
+    def bulbs_modes(self) -> list[BulbMode]:
+        return self.__bulbs_modes
+
+    def get_mode_for_bulb(self, bulb: BulbProvider) -> WhiteMode:
+        for bulb_mode in self.__bulbs_modes:
+            if bulb_mode.bulb == bulb:
+                return bulb_mode.mode
+        raise Exception(f"Can not define mode for bulb {bulb.name()}")

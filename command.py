@@ -4,7 +4,7 @@ from datetime import datetime
 import re
 
 from bulb import BulbProvider
-from mode import Mode, TransitionMode, WhiteMode, WhiteBetweenMode, Scene
+from mode import Mode, TransitionMode, WhiteBetweenMode, Scene
 from parallel import parallel_all
 from my import AbstractMethodException
 
@@ -175,10 +175,7 @@ class ArgumentsCommander(Commander):
 
 
 class TransitionCommander(ArgumentsCommander):
-    def __init__(self, scenes: dict[str, Scene]) -> None:
-        bulbs = [bulb for scene in scenes.values() for bulb in scene.bulbs()]
-        # bulbs = list(set(bulbs))
-        bulbs = list({id(bulb): bulb for bulb in bulbs}.values())
+    def __init__(self, bulbs: list[BulbProvider], scenes: dict[str, Scene]) -> None:
         super().__init__(bulbs,
                          [ArgumentSelect(scenes),
                           TimeArgument(),
@@ -187,29 +184,21 @@ class TransitionCommander(ArgumentsCommander):
 
     @staticmethod
     def get_mode(bulb: BulbProvider, arguments: list) -> Mode:
-        def scene_to_mode(scene: Scene) -> WhiteMode:
-            for bulb_mode in scene.bulbs_modes:
-                if bulb_mode.bulb == bulb:
-                    mode = bulb_mode.mode
-                    if isinstance(mode, WhiteMode):
-                        return mode
-                    else:
-                        raise Exception(f"Mode for bulb {bulb.name()} is not a WhiteMode")  # MAYBE: refactor
-            raise Exception(f"Can not define mode for bulb {bulb.name()}")
-
-        return TransitionMode(scene_to_mode(arguments[0]),
+        return TransitionMode(arguments[0].get_mode_for_bulb(bulb),
                               arguments[1],
-                              scene_to_mode(arguments[2]),
+                              arguments[2].get_mode_for_bulb(bulb),
                               arguments[3])
 
 
 class WhiteBetweenCommander(ArgumentsCommander):
-    def __init__(self, bulbs: list[BulbProvider], modes: dict[str, WhiteMode]) -> None:
+    def __init__(self, bulbs: list[BulbProvider], scenes: dict[str, Scene]) -> None:
         super().__init__(bulbs,
-                         [ArgumentSelect(modes),
-                          ArgumentSelect(modes),
+                         [ArgumentSelect(scenes),
+                          ArgumentSelect(scenes),
                           PercentsArgument()])
 
     @staticmethod
     def get_mode(bulb: BulbProvider, arguments: list) -> Mode:
-        return WhiteBetweenMode(*arguments)
+        return WhiteBetweenMode(arguments[0].get_mode_for_bulb(bulb),
+                                arguments[1].get_mode_for_bulb(bulb),
+                                arguments[2])

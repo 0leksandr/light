@@ -27,13 +27,6 @@ def main() -> None:
     table = BulbProvider("table", lambda: Yeelight.get())
     corridor = BulbProvider("corridor", lambda: Wiz.get("d8a0110a1bd4"))
 
-    white_modes: dict[str, WhiteMode] = {
-        "day":      WhiteMode(2700, 100),
-        "twilight": WhiteMode(2700, 60),
-        "evening":  WhiteMode(2700, 30),
-        "night":    WhiteMode(1700, 1),
-    }
-
     white_scenes: dict[str, Scene] = {
         "day":      Scene([BulbMode(table, WhiteMode(2700, 100)),
                            BulbMode(corridor, WhiteMode(2700, 100))]),
@@ -61,8 +54,8 @@ def main() -> None:
 
     def dynamic_commander(bulbs: list[BulbProvider]) -> dict[str, ArgumentsCommander]:
         return {
-            "transition": TransitionCommander(white_scenes),
-            "between":    WhiteBetweenCommander(bulbs, white_modes),
+            "transition": TransitionCommander(bulbs, white_scenes),
+            "between":    WhiteBetweenCommander(bulbs, white_scenes),
         }
 
     def bulb_commands(bulb: BulbProvider, modes: list[dict[str, Mode]]) -> TreeCommander:
@@ -83,7 +76,7 @@ def main() -> None:
             bulb_mode.bulb.name(): TreeCommander({name: SingleCommander(BulbCommand(bulb_mode.bulb, bulb_mode.mode))}),
         })
             for name, scene in white_scenes.items()
-            for bulb_mode in scene.bulbs_modes]),
+            for bulb_mode in scene.bulbs_modes()]),
     ])
 
     command = commands.get(sys.argv[1:])

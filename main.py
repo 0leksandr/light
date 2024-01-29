@@ -31,9 +31,9 @@ def main() -> None:
         "day":      Scene([BulbMode(table, WhiteMode(2700, 100)),
                            BulbMode(corridor, WhiteMode(2700, 100))]),
         "twilight": Scene([BulbMode(table, WhiteMode(2700, 60)),
-                           BulbMode(corridor, WhiteMode(2700, 60))]),
+                           BulbMode(corridor, WhiteMode(2700, 80))]),
         "evening":  Scene([BulbMode(table, WhiteMode(2700, 30)),
-                           BulbMode(corridor, WhiteMode(2700, 30))]),
+                           BulbMode(corridor, WhiteMode(2700, 60))]),
         "night":    Scene([BulbMode(table, WhiteMode(1700, 1)),
                            BulbMode(corridor, WhiteMode(1700, 1))]),
     }

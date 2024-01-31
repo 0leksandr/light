@@ -4,6 +4,7 @@ import sys
 from bulb import BulbProvider, Wiz, Yeelight
 from command import (BulbCommand,
                      SceneCommand,
+                     MultiCommand,
                      Commander,
                      SingleCommander,
                      JoinedCommander,
@@ -27,6 +28,8 @@ def main() -> None:
     table = BulbProvider("table", lambda: Yeelight.get())
     corridor = BulbProvider("corridor", lambda: Wiz.get("d8a0110a1bd4"))
 
+    all_bulbs = [corridor, table]
+
     white_scenes: dict[str, Scene] = {
         "day":      Scene([BulbMode(table, WhiteMode(2700, 100)),
                            BulbMode(corridor, WhiteMode(2700, 100))]),
@@ -45,8 +48,12 @@ def main() -> None:
     }
 
     common_modes: dict[str, Mode] = {
+        "off": StateMode(False),
+    }
+
+    bulb_modes: dict[str, Mode] = {
+        **common_modes,
         "on":         StateMode(True),
-        "off":        StateMode(False),
         "toggle":     ToggleMode(),
         "info":       InfoMode(),
         "brightness": BrightnessInfoMode(),
@@ -68,9 +75,11 @@ def main() -> None:
     commands = JoinedCommander([
         TreeCommander({
             **{name: SingleCommander(SceneCommand(scene)) for name, scene in white_scenes.items()},
-            **dynamic_commander([corridor, table]),
-            "table":    bulb_commands(table, [color_modes, common_modes]),
-            "corridor": bulb_commands(corridor, [common_modes]),
+            **dynamic_commander(all_bulbs),
+            **{name: SingleCommander(MultiCommand([BulbCommand(bulb, mode) for bulb in all_bulbs]))
+               for name, mode in common_modes.items()},
+            "table":    bulb_commands(table, [color_modes, bulb_modes]),
+            "corridor": bulb_commands(corridor, [bulb_modes]),
         }),
         JoinedCommander([TreeCommander({
             bulb_mode.bulb.name(): TreeCommander({name: SingleCommander(BulbCommand(bulb_mode.bulb, bulb_mode.mode))}),

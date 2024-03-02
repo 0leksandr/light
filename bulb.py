@@ -68,7 +68,7 @@ class Yeelight(ColorBulb):
         exceptions = []
         nr_tries = 10
         for i in range(nr_tries):
-            for ip0 in range(100, 105):
+            for ip0 in range(100, 110):
                 bulb = yeelight.Bulb(f"192.168.0.{ip0}")
                 try:
                     # bulb.get_capabilities()
@@ -138,7 +138,7 @@ class Wiz(Bulb):
             return False
 
         if bulb := parallel_first([(lambda ip=ip0: get(f"192.168.0.{ip}"))
-                                   for ip0 in range(100, 106)] + [timeout]):
+                                   for ip0 in range(100, 110)] + [timeout]):
             return bulb
         else:
             raise Exception("can not discover Wiz bulb")

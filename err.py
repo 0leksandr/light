@@ -12,4 +12,4 @@ def alert_exception(e: Exception) -> None:
     log_exception(e)
     print(traceback.format_exc())
     e_str = str(e).replace("'", "'\\''")
-    subprocess.call(f"alert 'bulb: {e_str}'", shell=True)
+    subprocess.call(f"alert 'light: {e_str}'", shell=True)

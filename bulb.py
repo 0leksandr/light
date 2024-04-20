@@ -1,21 +1,24 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Callable
+import ctypes
 import json
 import math
+import os
+import re
+import signal
 import subprocess
 import sys
-import re
 import time
 
 import pywizlight
 import yeelight
 
 from parallel import parallel_first
-from my import AbstractMethodException, dump
+from my import AbstractMethodException, dump, err
 
 
-class Bulb(ABC):
+class SwitchableBulb(ABC):
     @abstractmethod
     def turn_on(self) -> None:
         raise AbstractMethodException()
@@ -25,15 +28,25 @@ class Bulb(ABC):
         raise AbstractMethodException()
 
     @abstractmethod
-    def white(self, temperature: int, brightness: int) -> None:
-        raise AbstractMethodException()
-
-    @abstractmethod
     def toggle(self) -> None:
         raise AbstractMethodException()
 
     @abstractmethod
     def print_info(self) -> None:
+        raise AbstractMethodException()
+
+
+class BrightBulb(SwitchableBulb, ABC):
+    def white(self, brightness: int) -> None:
+        raise AbstractMethodException()
+
+    def brightness(self) -> int:
+        raise AbstractMethodException()
+
+
+class Bulb(SwitchableBulb, ABC):  # TODO: BrightWarmBulb
+    @abstractmethod
+    def white(self, temperature: int, brightness: int) -> None:
         raise AbstractMethodException()
 
     @abstractmethod
@@ -198,15 +211,113 @@ class Wiz(Bulb):
             return round(value / 100 * 255)
 
 
+# class YeelightBt(BrightBulb):
+#     def __init__(self, mac: str) -> None:
+#         import yeelightbt  # TODO: move
+#         self.__lamp = yeelightbt.Lamp(mac)
+#         self.__lamp.connect()
+#
+#     def turn_on(self) -> None:
+#         self.__lamp.turn_on()
+#
+#     def turn_off(self) -> None:
+#         self.__lamp.turn_off()
+#
+#     def white(self, brightness: int) -> None:
+#         raise AbstractMethodException()
+#
+#     def toggle(self) -> None:
+#         raise AbstractMethodException()
+#
+#     def print_info(self) -> None:
+#         print(self.__lamp)
+#         dump(self.__lamp.brightness)
+#         dump(self.__lamp.temperature)
+#         dump(self.__lamp.mode)
+#         dump(self.__lamp.state())
+#
+#     def brightness(self) -> int:
+#         raise AbstractMethodException()
+
+
+class YeelightBt(BrightBulb):
+    def __init__(self, mac: str) -> None:
+        self.__mac = mac
+
+    def turn_on(self) -> None:
+        self.__call("on")
+
+    def turn_off(self) -> None:
+        self.__call("off")
+
+    def white(self, brightness: int) -> None:
+        self.__call(f"brightness {brightness}")
+
+    def toggle(self) -> None:
+        if self.__call()[0]:
+            self.turn_off()
+        else:
+            self.turn_on()
+
+    def print_info(self) -> None:
+        self.__call(stdout=True)
+
+    def brightness(self) -> int:
+        mode = self.__call()[1]
+        if mode in ["Color", "White"]:
+            return 1
+        else:
+            return int(mode)
+
+    def __call(self, cmd: str = "device-info", stdout: bool = False) -> tuple[bool, str]:
+        def fn() -> tuple[bool, str]:
+            _dir = os.path.dirname(__file__) + "/../python-yeelightbt"
+            args = [f"{_dir}/venv/3.11/bin/python",
+                    f"{_dir}/yeelightbt/cli.py",
+                    "--mac",
+                    self.__mac,
+                    *(cmd.split(" "))]
+
+            process = subprocess.Popen(args,
+                                       text=True,
+                                       env={"PYTHONPATH": _dir},
+                                       stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE,
+                                       # https://stackoverflow.com/a/19448096/12446338
+                                       preexec_fn=lambda: ctypes.CDLL("libc.so.6").prctl(1, signal.SIGTERM))
+            _stdout, _stderr = process.communicate()
+
+            if stdout:
+                if _stdout: dump(_stdout)
+                if _stderr: err(_stderr)
+
+            for line in _stdout.split("\n"):
+                if match := re.match(f"^Got notif: <Lamp {self.__mac} is_on\\(([^()]+)\\) mode\\(([^()]+)\\) " +
+                                     "rgb\\(\\(2, 7, 8, 0\\)\\) brightness\\(0\\) colortemp\\(0\\)>$",
+                                     line):
+                    return match[1] == "True", match[2]
+            raise Exception("yeelightbt failed")
+
+        def timeout() -> False:
+            time.sleep(5)
+            return False
+
+        for _ in range(3):
+            if result := parallel_first([fn, timeout]):
+                return result
+        raise Exception(f"cannot call `{cmd}` on yeelightbt")
+
+
+# MAYBE: use templates
 class BulbProvider:
-    def __init__(self, name: str, get_bulb: Callable[[], Bulb]) -> None:
+    def __init__(self, name: str, get_bulb: Callable[[], SwitchableBulb]) -> None:
         self.__name = name
         self.__get = get_bulb
 
     def __eq__(self, other: BulbProvider) -> bool:
         return self.__name == other.__name
 
-    def get(self) -> Bulb:
+    def get(self) -> SwitchableBulb:
         return self.__get()
 
     def name(self) -> str:

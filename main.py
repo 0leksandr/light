@@ -1,7 +1,7 @@
 from __future__ import annotations
 import sys
 
-from bulb import BulbProvider, Wiz, Yeelight
+from bulb import BulbProvider, Wiz, Yeelight, YeelightBt
 from command import (BulbCommand,
                      SceneCommand,
                      MultiCommand,
@@ -17,6 +17,7 @@ from mode import (Mode,
                   BulbMode,
                   StateMode,
                   ToggleMode,
+                  BrightMode,
                   WhiteMode,
                   ColorMode,
                   InfoMode,
@@ -27,19 +28,46 @@ from mode import (Mode,
 def main() -> None:
     desk = BulbProvider("desk", lambda: Yeelight.get())
     corridor = BulbProvider("corridor", lambda: Wiz.get("d8a0110a1bd4"))
+    candela = BulbProvider("candela", lambda: YeelightBt("f8:24:41:c3:b8:43"))
 
-    all_bulbs = [corridor, desk]
+    all_bulbs = [corridor, desk, candela]
 
-    white_scenes: dict[str, Scene] = {
-        "day":      Scene([BulbMode(desk, WhiteMode(2700, 100)),
-                           BulbMode(corridor, WhiteMode(2700, 100))]),
-        "twilight": Scene([BulbMode(desk, WhiteMode(2700, 60)),
-                           BulbMode(corridor, WhiteMode(2700, 80))]),
-        "evening":  Scene([BulbMode(desk, WhiteMode(2700, 30)),
-                           BulbMode(corridor, WhiteMode(2700, 60))]),
-        "night":    Scene([BulbMode(desk, WhiteMode(1700, 1)),
-                           BulbMode(corridor, WhiteMode(1700, 1))]),
+    class HouseScene:
+        def __init__(self,
+                     desk_mode: WhiteMode,
+                     corridor_mode: WhiteMode,
+                     candela_mode: BrightMode) -> None:
+            self.__desk_mode = desk_mode
+            self.__corridor_mode = corridor_mode
+            self.__candela_mode = candela_mode
+
+        def to_scene(self) -> Scene:
+            return Scene([BulbMode(desk, self.__desk_mode),
+                          BulbMode(corridor, self.__corridor_mode),
+                          BulbMode(candela, self.__candela_mode)])
+
+    house_scenes: dict[str, HouseScene] = {
+        "day":      HouseScene(desk_mode=WhiteMode(2700, 0),
+                               corridor_mode=WhiteMode(2700, 100),
+                               candela_mode=BrightMode(0)),
+        "twilight": HouseScene(desk_mode=WhiteMode(2700, 60),
+                               corridor_mode=WhiteMode(2700, 80),
+                               candela_mode=BrightMode(0)),
+        "evening":  HouseScene(desk_mode=WhiteMode(2700, 30),
+                               corridor_mode=WhiteMode(2700, 60),
+                               candela_mode=BrightMode(0)),
+        "night":    HouseScene(desk_mode=WhiteMode(1700, 1),
+                               corridor_mode=WhiteMode(1700, 1),
+                               candela_mode=BrightMode(1)),
+        "darkness": HouseScene(desk_mode=WhiteMode(1700, 0),  # TODO: `StateMode(False)`
+                               corridor_mode=WhiteMode(1700, 0),
+                               candela_mode=BrightMode(10)),
+        "midnight": HouseScene(desk_mode=WhiteMode(1700, 0),  # TODO: `None`
+                               corridor_mode=WhiteMode(1700, 0),
+                               candela_mode=BrightMode(1)),
     }
+
+    white_scenes: dict[str, Scene] = {name: house_scene.to_scene() for name, house_scene in house_scenes.items()}
 
     color_modes: dict[str, ColorMode] = {
         "red":   ColorMode(255, 61, 0, 1),
@@ -78,8 +106,9 @@ def main() -> None:
             **dynamic_commander(all_bulbs),
             **{name: SingleCommander(MultiCommand([BulbCommand(bulb, mode) for bulb in all_bulbs]))
                for name, mode in common_modes.items()},
-            "desk":    bulb_commands(desk, [color_modes, bulb_modes]),
+            "desk":     bulb_commands(desk, [color_modes, bulb_modes]),
             "corridor": bulb_commands(corridor, [bulb_modes]),
+            "candela":  bulb_commands(candela, [bulb_modes]),
         }),
         JoinedCommander([TreeCommander({
             bulb_mode.bulb.name(): TreeCommander({name: SingleCommander(BulbCommand(bulb_mode.bulb, bulb_mode.mode))}),

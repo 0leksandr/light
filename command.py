@@ -4,7 +4,7 @@ from datetime import datetime
 import re
 
 from bulb import BulbProvider
-from mode import Mode, TransitionMode, WhiteBetweenMode, Scene
+from mode import Mode, TransitionMode, BetweenTransitiveMode, Scene
 from parallel import parallel_all
 from my import AbstractMethodException
 
@@ -199,6 +199,6 @@ class WhiteBetweenCommander(ArgumentsCommander):
 
     @staticmethod
     def get_mode(bulb: BulbProvider, arguments: list) -> Mode:
-        return WhiteBetweenMode(arguments[0].get_mode_for_bulb(bulb),
-                                arguments[1].get_mode_for_bulb(bulb),
-                                arguments[2])
+        return BetweenTransitiveMode(arguments[0].get_mode_for_bulb(bulb),
+                                     arguments[1].get_mode_for_bulb(bulb),
+                                     arguments[2])

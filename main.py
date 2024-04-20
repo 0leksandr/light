@@ -18,7 +18,7 @@ from mode import (Mode,
                   StateMode,
                   ToggleMode,
                   BrightMode,
-                  WhiteMode,
+                  BrightWarmMode,
                   ColorMode,
                   InfoMode,
                   BrightnessInfoMode,
@@ -34,8 +34,8 @@ def main() -> None:
 
     class HouseScene:
         def __init__(self,
-                     desk_mode: WhiteMode,
-                     corridor_mode: WhiteMode,
+                     desk_mode: BrightWarmMode,
+                     corridor_mode: BrightWarmMode,
                      candela_mode: BrightMode) -> None:
             self.__desk_mode = desk_mode
             self.__corridor_mode = corridor_mode
@@ -47,23 +47,23 @@ def main() -> None:
                           BulbMode(candela, self.__candela_mode)])
 
     house_scenes: dict[str, HouseScene] = {
-        "day":      HouseScene(desk_mode=WhiteMode(2700, 0),
-                               corridor_mode=WhiteMode(2700, 100),
+        "day":      HouseScene(desk_mode=BrightWarmMode(2700, 0),
+                               corridor_mode=BrightWarmMode(2700, 100),
                                candela_mode=BrightMode(0)),
-        "twilight": HouseScene(desk_mode=WhiteMode(2700, 60),
-                               corridor_mode=WhiteMode(2700, 80),
+        "twilight": HouseScene(desk_mode=BrightWarmMode(2700, 60),
+                               corridor_mode=BrightWarmMode(2700, 80),
                                candela_mode=BrightMode(0)),
-        "evening":  HouseScene(desk_mode=WhiteMode(2700, 30),
-                               corridor_mode=WhiteMode(2700, 60),
+        "evening":  HouseScene(desk_mode=BrightWarmMode(2700, 30),
+                               corridor_mode=BrightWarmMode(2700, 60),
                                candela_mode=BrightMode(0)),
-        "night":    HouseScene(desk_mode=WhiteMode(1700, 1),
-                               corridor_mode=WhiteMode(1700, 1),
+        "night":    HouseScene(desk_mode=BrightWarmMode(1700, 1),
+                               corridor_mode=BrightWarmMode(1700, 1),
                                candela_mode=BrightMode(1)),
-        "darkness": HouseScene(desk_mode=WhiteMode(1700, 0),  # TODO: `StateMode(False)`
-                               corridor_mode=WhiteMode(1700, 0),
+        "darkness": HouseScene(desk_mode=BrightWarmMode(1700, 0),  # TODO: `StateMode(False)`
+                               corridor_mode=BrightWarmMode(1700, 0),
                                candela_mode=BrightMode(10)),
-        "midnight": HouseScene(desk_mode=WhiteMode(1700, 0),  # TODO: `None`
-                               corridor_mode=WhiteMode(1700, 0),
+        "midnight": HouseScene(desk_mode=BrightWarmMode(1700, 0),  # TODO: `None`
+                               corridor_mode=BrightWarmMode(1700, 0),
                                candela_mode=BrightMode(1)),
     }
 

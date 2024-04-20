@@ -44,7 +44,7 @@ class BrightBulb(SwitchableBulb, ABC):
         raise AbstractMethodException()
 
 
-class Bulb(SwitchableBulb, ABC):  # TODO: BrightWarmBulb
+class BrightWarmBulb(SwitchableBulb, ABC):
     @abstractmethod
     def white(self, temperature: int, brightness: int) -> None:
         raise AbstractMethodException()
@@ -54,7 +54,7 @@ class Bulb(SwitchableBulb, ABC):  # TODO: BrightWarmBulb
         raise AbstractMethodException()
 
 
-class ColorBulb(Bulb):
+class ColorBulb(BrightWarmBulb):
     @abstractmethod
     def color(self, red: int, green: int, blue: int, brightness: int) -> None:
         raise AbstractMethodException()
@@ -125,7 +125,7 @@ class WizException(Exception):
     pass
 
 
-class Wiz(Bulb):
+class Wiz(BrightWarmBulb):
     __bulb = pywizlight.wizlight
 
     def __init__(self, ip: str) -> None:

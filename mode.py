@@ -2,7 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from bulb import SwitchableBulb, BrightBulb, Bulb, ColorBulb, BulbProvider
+from bulb import SwitchableBulb, BrightBulb, BrightWarmBulb, ColorBulb, BulbProvider
 from parallel import parallel_all
 import transition
 
@@ -35,20 +35,20 @@ class BrightMode(TransitiveMode):
         return BrightState(self.__brightness, bulb)
 
 
-class WhiteMode(TransitiveMode):
+class BrightWarmMode(TransitiveMode):
     def __init__(self, temperature: int, brightness: int) -> None:
         self.__temperature = temperature
         self.__brightness = brightness
 
-    def apply(self, bulb: Bulb) -> None:
+    def apply(self, bulb: BrightWarmBulb) -> None:
         if self.__brightness == 0:
             bulb.turn_off()
         else:
             # bulb.turn_on()
             bulb.white(self.__temperature, self.__brightness)
 
-    def to_state(self, bulb: Bulb) -> WhiteState:
-        return WhiteState(self.__temperature, self.__brightness, bulb)
+    def to_state(self, bulb: BrightWarmBulb) -> BrightWarmState:
+        return BrightWarmState(self.__temperature, self.__brightness, bulb)
 
 
 class BetweenTransitiveMode(Mode):
@@ -70,7 +70,7 @@ class StateMode(Mode):
     def __init__(self, state: bool) -> None:
         self.state = state
 
-    def apply(self, bulb: Bulb) -> None:
+    def apply(self, bulb: SwitchableBulb) -> None:
         if self.state:
             bulb.turn_on()
         else:
@@ -78,17 +78,17 @@ class StateMode(Mode):
 
 
 class ToggleMode(Mode):
-    def apply(self, bulb: Bulb) -> None:
+    def apply(self, bulb: SwitchableBulb) -> None:
         bulb.toggle()
 
 
 class InfoMode(Mode):
-    def apply(self, bulb: Bulb) -> None:
+    def apply(self, bulb: SwitchableBulb) -> None:
         bulb.print_info()
 
 
 class BrightnessInfoMode(Mode):
-    def apply(self, bulb: Bulb) -> None:
+    def apply(self, bulb: BrightWarmBulb) -> None:
         print(bulb.brightness())
 
 
@@ -140,24 +140,24 @@ class BrightState(transition.State):
                            a.__bulb)
 
 
-class WhiteState(transition.State):
-    def __init__(self, temperature: int, brightness: int, bulb: Bulb) -> None:
+class BrightWarmState(transition.State):
+    def __init__(self, temperature: int, brightness: int, bulb: BrightWarmBulb) -> None:
         self.__temperature = temperature
         self.__brightness = brightness
         self.__bulb = bulb  # MAYBE: remove
 
-    def __eq__(self, other: WhiteState) -> bool:
+    def __eq__(self, other: BrightWarmState) -> bool:
         return (self.__temperature == other.__temperature
                 and self.__brightness == other.__brightness)
 
     def apply(self) -> None:
-        WhiteMode(self.__temperature, self.__brightness).apply(self.__bulb)
+        BrightWarmMode(self.__temperature, self.__brightness).apply(self.__bulb)
 
     @staticmethod
-    def avg(a: WhiteState, b: WhiteState, weight_a: float) -> WhiteState:
-        return WhiteState(WhiteState._value(a.__temperature, b.__temperature, weight_a),
-                          WhiteState._value(a.__brightness, b.__brightness, weight_a),
-                          a.__bulb)
+    def avg(a: BrightWarmState, b: BrightWarmState, weight_a: float) -> BrightWarmState:
+        return BrightWarmState(BrightWarmState._value(a.__temperature, b.__temperature, weight_a),
+                               BrightWarmState._value(a.__brightness, b.__brightness, weight_a),
+                               a.__bulb)
 
 
 class ScenePart(ABC):

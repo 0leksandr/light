@@ -2,7 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from bulb import Bulb, ColorBulb, BulbProvider
+from bulb import SwitchableBulb, BrightBulb, BrightWarmBulb, ColorBulb, BulbProvider
 from parallel import parallel_all
 import transition
 
@@ -11,32 +11,56 @@ from my import AbstractMethodException
 
 class Mode(ABC):
     @abstractmethod
-    def apply(self, bulb: Bulb) -> None:
+    def apply(self, bulb: SwitchableBulb) -> None:
         raise AbstractMethodException()
 
 
-class WhiteMode(Mode):
+class TransitiveMode(Mode, ABC):
+    @abstractmethod
+    def to_state(self, bulb: SwitchableBulb) -> transition.State:
+        raise AbstractMethodException()
+
+
+class BrightMode(TransitiveMode):
+    def __init__(self, brightness: int) -> None:
+        self.__brightness = brightness
+
+    def apply(self, bulb: BrightBulb) -> None:
+        if self.__brightness == 0:
+            bulb.turn_off()
+        else:
+            bulb.white(self.__brightness)
+
+    def to_state(self, bulb: BrightBulb) -> BrightState:
+        return BrightState(self.__brightness, bulb)
+
+
+class BrightWarmMode(TransitiveMode):
     def __init__(self, temperature: int, brightness: int) -> None:
         self.__temperature = temperature
         self.__brightness = brightness
 
-    def apply(self, bulb: Bulb) -> None:
-        # bulb.turn_on()
-        bulb.white(self.__temperature, self.__brightness)
+    def apply(self, bulb: BrightWarmBulb) -> None:
+        if self.__brightness == 0:
+            bulb.turn_off()
+        else:
+            # bulb.turn_on()
+            bulb.white(self.__temperature, self.__brightness)
 
-    def to_state(self, bulb: Bulb) -> WhiteState:
-        return WhiteState(self.__temperature, self.__brightness, bulb)
+    def to_state(self, bulb: BrightWarmBulb) -> BrightWarmState:
+        return BrightWarmState(self.__temperature, self.__brightness, bulb)
 
 
-class WhiteBetweenMode(Mode):
-    def __init__(self, _from: WhiteMode, to: WhiteMode, progress_percents: int) -> None:
+class BetweenTransitiveMode(Mode):
+    def __init__(self, _from: TransitiveMode, to: TransitiveMode, progress_percents: int) -> None:
         self.__from = _from
         self.__to = to
         self.__progress_percents = progress_percents
 
-    def apply(self, bulb: Bulb) -> None:
-        (WhiteState
-         .avg(self.__from.to_state(bulb),
+    def apply(self, bulb: SwitchableBulb) -> None:
+        initial_state = self.__from.to_state(bulb)
+        (initial_state
+         .avg(initial_state,
               self.__to.to_state(bulb),
               1 - self.__progress_percents / 100)
          .apply())
@@ -46,7 +70,7 @@ class StateMode(Mode):
     def __init__(self, state: bool) -> None:
         self.state = state
 
-    def apply(self, bulb: Bulb) -> None:
+    def apply(self, bulb: SwitchableBulb) -> None:
         if self.state:
             bulb.turn_on()
         else:
@@ -54,17 +78,17 @@ class StateMode(Mode):
 
 
 class ToggleMode(Mode):
-    def apply(self, bulb: Bulb) -> None:
+    def apply(self, bulb: SwitchableBulb) -> None:
         bulb.toggle()
 
 
 class InfoMode(Mode):
-    def apply(self, bulb: Bulb) -> None:
+    def apply(self, bulb: SwitchableBulb) -> None:
         bulb.print_info()
 
 
 class BrightnessInfoMode(Mode):
-    def apply(self, bulb: Bulb) -> None:
+    def apply(self, bulb: BrightWarmBulb) -> None:
         print(bulb.brightness())
 
 
@@ -82,16 +106,16 @@ class ColorMode(Mode):
 
 class TransitionMode(Mode):
     def __init__(self,
-                 from_mode: WhiteMode,
+                 from_mode: TransitiveMode,
                  from_time: datetime,
-                 to_mode: WhiteMode,
+                 to_mode: TransitiveMode,
                  to_time: datetime) -> None:
         self.__from_mode = from_mode
         self.__from_time = from_time
         self.__to_mode = to_mode
         self.__to_time = to_time
 
-    def apply(self, bulb: Bulb) -> None:
+    def apply(self, bulb: SwitchableBulb) -> None:
         trans = transition.Transition(self.__from_mode.to_state(bulb),
                                       self.__from_time,
                                       self.__to_mode.to_state(bulb),
@@ -99,24 +123,41 @@ class TransitionMode(Mode):
         trans.run()
 
 
-class WhiteState(transition.State):
-    def __init__(self, temperature: int, brightness: int, bulb: Bulb) -> None:
+class BrightState(transition.State):
+    def __init__(self, brightness: int, bulb: BrightBulb) -> None:
+        self.__brightness = brightness
+        self.__bulb = bulb
+
+    def __eq__(self, other: BrightState) -> bool:
+        return self.__brightness == other.__brightness
+
+    def apply(self) -> None:
+        BrightMode(self.__brightness).apply(self.__bulb)
+
+    @staticmethod
+    def avg(a: BrightState, b: BrightState, weight_a: float) -> BrightState:
+        return BrightState(BrightState._value(a.__brightness, b.__brightness, weight_a),
+                           a.__bulb)
+
+
+class BrightWarmState(transition.State):
+    def __init__(self, temperature: int, brightness: int, bulb: BrightWarmBulb) -> None:
         self.__temperature = temperature
         self.__brightness = brightness
         self.__bulb = bulb  # MAYBE: remove
 
-    def __eq__(self, other: WhiteState) -> bool:
+    def __eq__(self, other: BrightWarmState) -> bool:
         return (self.__temperature == other.__temperature
                 and self.__brightness == other.__brightness)
 
     def apply(self) -> None:
-        self.__bulb.white(self.__temperature, self.__brightness)
+        BrightWarmMode(self.__temperature, self.__brightness).apply(self.__bulb)
 
     @staticmethod
-    def avg(a: WhiteState, b: WhiteState, weight_a: float) -> WhiteState:
-        return WhiteState(WhiteState._value(a.__temperature, b.__temperature, weight_a),
-                          WhiteState._value(a.__brightness, b.__brightness, weight_a),
-                          a.__bulb)
+    def avg(a: BrightWarmState, b: BrightWarmState, weight_a: float) -> BrightWarmState:
+        return BrightWarmState(BrightWarmState._value(a.__temperature, b.__temperature, weight_a),
+                               BrightWarmState._value(a.__brightness, b.__brightness, weight_a),
+                               a.__bulb)
 
 
 class ScenePart(ABC):
@@ -125,7 +166,7 @@ class ScenePart(ABC):
 
 
 class BulbMode(ScenePart):  # TODO: rename
-    def __init__(self, bulb: BulbProvider, mode: WhiteMode) -> None:
+    def __init__(self, bulb: BulbProvider, mode: TransitiveMode) -> None:
         self.bulb = bulb
         self.mode = mode
 
@@ -143,7 +184,7 @@ class Scene(ScenePart):
     def bulbs_modes(self) -> list[BulbMode]:
         return self.__bulbs_modes
 
-    def get_mode_for_bulb(self, bulb: BulbProvider) -> WhiteMode:
+    def get_mode_for_bulb(self, bulb: BulbProvider) -> TransitiveMode:
         for bulb_mode in self.__bulbs_modes:
             if bulb_mode.bulb == bulb:
                 return bulb_mode.mode

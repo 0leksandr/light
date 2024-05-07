@@ -263,11 +263,15 @@ class YeelightBt(BrightBulb):
         self.__call(stdout=True)
 
     def brightness(self) -> int:
+        modes = {
+            "Color": 1,
+            "White": 2,
+            "Flow":  3,
+        }
         mode = self.__call()[1]
-        if mode in ["Color", "White"]:
-            return 1
-        else:
-            return int(mode)
+        return modes[mode] \
+            if mode in modes \
+            else int(mode)
 
     def __call(self, cmd: str = "device-info", stdout: bool = False) -> tuple[bool, str]:
         def fn() -> tuple[bool, str]:

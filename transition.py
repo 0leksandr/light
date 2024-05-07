@@ -2,6 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import TypeVar
+import math
 import time
 
 from err import log_exception
@@ -25,7 +26,7 @@ class State(ABC):
 
     @staticmethod
     def _value(_a: int, _b: int, weight_a: float) -> int:
-        return int(_a * weight_a + _b * (1 - weight_a))
+        return math.ceil(_a * weight_a + _b * (1 - weight_a))
 
 
 TheState = TypeVar('TheState', bound=State)

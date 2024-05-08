@@ -26,7 +26,10 @@ class State(ABC):
 
     @staticmethod
     def _value(_a: int, _b: int, weight_a: float) -> int:
-        return math.ceil(_a * weight_a + _b * (1 - weight_a))
+        result = _a * weight_a + _b * (1 - weight_a)
+        return math.floor(result) \
+            if _a < _b \
+            else math.ceil(result)
 
 
 TheState = TypeVar('TheState', bound=State)

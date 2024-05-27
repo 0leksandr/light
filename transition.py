@@ -50,15 +50,13 @@ class Transition:
     def run(self) -> None:
         interval_seconds = (self.__to_time - self.__from_time).total_seconds()
         if interval_seconds < 0:
-            self.__tick(0)
-            return
+            raise Exception("inconsistent transition interval")
         while True:
             now = datetime.now()
             progress = (now - self.__from_time).total_seconds() / interval_seconds
             if progress < 0:
                 raise Exception("progress < 0")
-            if progress >= 1:
-                self.__tick(1)
+            elif progress > 1:
                 return
             self.__tick(progress)
             time.sleep(1)

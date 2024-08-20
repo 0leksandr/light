@@ -46,25 +46,28 @@ def main() -> None:
                           BulbMode(corridor, self.__corridor_mode),
                           BulbMode(candela, self.__candela_mode)])
 
+    darkness = HouseScene(desk_mode=BrightWarmMode(1700, 0),
+                          corridor_mode=BrightWarmMode(1700, 0),
+                          candela_mode=BrightMode(1))
     house_scenes: dict[str, HouseScene] = {
+        "morning":  darkness,
         "day":      HouseScene(desk_mode=BrightWarmMode(2700, 0),
                                corridor_mode=BrightWarmMode(2700, 100),
                                candela_mode=BrightMode(0)),
-        "twilight": HouseScene(desk_mode=BrightWarmMode(2700, 60),
+        "dusk":     HouseScene(desk_mode=BrightWarmMode(2700, 60),
                                corridor_mode=BrightWarmMode(2700, 80),
                                candela_mode=BrightMode(0)),
-        "evening":  HouseScene(desk_mode=BrightWarmMode(2700, 30),
+        "twilight": HouseScene(desk_mode=BrightWarmMode(2700, 30),
                                corridor_mode=BrightWarmMode(2700, 60),
                                candela_mode=BrightMode(0)),
-        "night":    HouseScene(desk_mode=BrightWarmMode(1700, 1),
+        "evening":  HouseScene(desk_mode=BrightWarmMode(1700, 1),
                                corridor_mode=BrightWarmMode(1700, 1),
                                candela_mode=BrightMode(1)),
-        "darkness": HouseScene(desk_mode=BrightWarmMode(1700, 0),  # TODO: `StateMode(False)`
+        "night":    HouseScene(desk_mode=BrightWarmMode(1700, 0),  # TODO: `StateMode(False)`
                                corridor_mode=BrightWarmMode(1700, 0),
                                candela_mode=BrightMode(10)),
-        "midnight": HouseScene(desk_mode=BrightWarmMode(1700, 0),  # TODO: `None`
-                               corridor_mode=BrightWarmMode(1700, 0),
-                               candela_mode=BrightMode(1)),
+        "midnight": darkness,
+        "darkness": darkness,
     }
 
     white_scenes: dict[str, Scene] = {name: house_scene.to_scene() for name, house_scene in house_scenes.items()}

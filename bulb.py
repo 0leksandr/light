@@ -37,9 +37,11 @@ class SwitchableBulb(ABC):
 
 
 class BrightBulb(SwitchableBulb, ABC):
+    @abstractmethod
     def white(self, brightness: int) -> None:
         raise AbstractMethodException()
 
+    @abstractmethod
     def brightness(self) -> int:
         raise AbstractMethodException()
 
@@ -183,6 +185,9 @@ class Wiz(BrightWarmBulb):
         result = self.__await(self.__bulb.updateState, post=[pywizlight.bulb.PilotParser.get_brightness])
         return self.__convert_brightness(int(result), True)
 
+    def __await(self, method, args: list | None = None, post: list | None = None) -> str:
+        return Wiz.__await_ip(self.__ip, method, args, post)
+
     @staticmethod
     def __await_ip(ip: str, method, args: list | None = None, post: list | None = None) -> str:
         args = [sys.executable,
@@ -196,9 +201,6 @@ class Wiz(BrightWarmBulb):
             raise WizException(res.stderr)
         else:
             return res.stdout.rstrip("\n")
-
-    def __await(self, method, args: list | None = None, post: list | None = None) -> str:
-        return Wiz.__await_ip(self.__ip, method, args, post)
 
     @staticmethod
     def __convert_brightness(value: int, to_percents: bool) -> int:
